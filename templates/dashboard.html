@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus AI – Crypto Farmer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────── -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">NEXUS <span class="ai">AI</span></span>
+      </div>
+      <div class="header-meta">
+        <span id="status-badge" class="badge badge--offline">● Connecting…</span>
+        <span id="dry-run-badge" class="badge badge--info" style="display:none">DRY RUN</span>
+        <span id="uptime"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main layout ────────────────────────────────────── -->
+  <main>
+
+    <!-- Stats row -->
+    <section class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Est. Profit</div>
+        <div class="stat-value" id="total-profit">$0.00</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Successful Trades</div>
+        <div class="stat-value" id="total-trades">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Opportunities Found</div>
+        <div class="stat-value" id="total-found">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Chains</div>
+        <div class="stat-value" id="active-chains">0</div>
+      </div>
+    </section>
+
+    <!-- Two-column layout -->
+    <div class="cols">
+
+      <!-- Left column -->
+      <div class="col">
+
+        <!-- Chain status -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-icon">🔗</span> Blockchain Connections
+          </div>
+          <div id="chain-list" class="chain-list"></div>
+        </div>
+
+        <!-- Top yield rates -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-icon">📈</span> Top Yield Rates (DeFi Llama)
+          </div>
+          <div id="yield-list" class="yield-list">
+            <div class="loading">Loading…</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right column -->
+      <div class="col">
+
+        <!-- Opportunities -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-icon">🎯</span> Live Opportunities
+            <span class="scan-counter" id="scan-counter"></span>
+          </div>
+          <div id="opportunity-list" class="opp-list">
+            <div class="loading">Scanning…</div>
+          </div>
+        </div>
+
+        <!-- Recent trades -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-icon">⚡</span> Recent Trades
+          </div>
+          <div id="trade-list" class="trade-list">
+            <div class="loading">No trades yet…</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Config panel -->
+    <div class="card config-card">
+      <div class="card-header">
+        <span class="card-icon">⚙️</span> Active Configuration
+      </div>
+      <div id="config-panel" class="config-panel"></div>
+    </div>
+
+  </main>
+
+  <footer>
+    <span>Nexus AI Crypto Farmer &nbsp;|&nbsp; All trades subject to market conditions &nbsp;|&nbsp; Use at your own risk</span>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
