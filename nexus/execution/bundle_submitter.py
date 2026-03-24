@@ -184,7 +184,7 @@ class BundleSubmitter:
         return {"success": False, "relay": "flashbots", "error": error}
 
     def _flashbots_rpc(self, payload: dict) -> Optional[dict]:
-        body = json.dumps(payload)
+        body = json.dumps(payload, sort_keys=True)
         # Flashbots requires a signature of keccak256(body) using the signer key
         message_hash = Web3.keccak(text=body).hex()
         signed = self._signer.sign_message(encode_defunct(hexstr=message_hash))

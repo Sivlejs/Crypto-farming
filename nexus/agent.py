@@ -18,6 +18,7 @@ from nexus.rewards import RewardTracker
 from nexus.payout import get_payout_manager, PayoutManager
 from nexus.feeds.price_feed import get_price_feed, PriceFeed
 from nexus.execution.bundle_submitter import get_bundle_submitter
+from nexus.learning.brain import get_brain, NexusBrain
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -43,6 +44,7 @@ class NexusAgent:
         self.payout: PayoutManager = get_payout_manager(self.blockchain)
         self.feed: PriceFeed = get_price_feed()
         self.bundler = get_bundle_submitter()
+        self.brain: NexusBrain = get_brain()
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
@@ -88,32 +90,51 @@ class NexusAgent:
             time.sleep(Config.SCAN_INTERVAL_SECONDS)
 
     def _try_execute(self):
+        # Feed latest prices into brain for market classification
+        prices = self.feed.all_prices()
+        if prices:
+            self.brain.on_prices(prices)
+
         opp = self.monitor.get_best_opportunity()
         if not opp:
             return
 
-        if opp.estimated_profit_usd < Config.MIN_PROFIT_USD:
+        # Record opportunity in trade memory BEFORE execution
+        opp_dict = opp.__dict__ if hasattr(opp, "__dict__") else {}
+        self.brain.record_opportunity(opp_dict)
+
+        # ── Brain go/no-go decision ────────────────────────────
+        go, reason = self.brain.should_execute(opp_dict)
+        if not go:
+            logger.info("Brain skipped opportunity: %s", reason)
             return
 
         logger.info(
-            "Executing best opportunity: %s (score=%.4f, profit=$%.4f)",
+            "Executing best opportunity: %s (brain=%s score=%.4f profit=$%.4f)",
             opp.description,
+            reason,
             opp.score(),
             opp.estimated_profit_usd,
         )
 
         tx_hash = self.executor.execute(opp)
+        success = bool(tx_hash and tx_hash != "failed")
+        actual_profit = opp.estimated_profit_usd if success else 0.0
+
         self.monitor.mark_executed(opp, tx_hash or "failed")
         self.tracker.record(
             opp=opp,
             tx_hash=tx_hash,
-            actual_profit_usd=opp.estimated_profit_usd if tx_hash else None,
+            actual_profit_usd=actual_profit if success else None,
             dry_run=Config.DRY_RUN,
         )
 
+        # ── Teach the brain what happened ─────────────────────
+        self.brain.learn(opp_dict, success=success, actual_profit=actual_profit)
+
         # Queue profit for automatic payout to Coinbase / Cash App
-        if tx_hash:
-            self.payout.queue(opp.estimated_profit_usd, opp.chain)
+        if success:
+            self.payout.queue(actual_profit, opp.chain)
 
     # ── Status / reporting ────────────────────────────────────
 
@@ -130,6 +151,7 @@ class NexusAgent:
             "payout": self.payout.status(),
             "prices": self.feed.all_prices(),
             "flashbots_ready": self.bundler.is_available(),
+            "brain": self.brain.status(),
         }
 
     def get_opportunities(self, limit: int = 20) -> list:

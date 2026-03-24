@@ -105,7 +105,7 @@ class BlockchainManager:
         if not rpc:
             return None
         try:
-            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 8}))
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 15}))
             if CHAIN_INFO[chain]["poa"]:
                 w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
             if w3.is_connected():

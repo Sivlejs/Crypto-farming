@@ -159,6 +159,40 @@ def api_payout_sweep():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/learning")
+def api_learning():
+    """Return full AI brain / learning status."""
+    try:
+        agent = get_agent()
+        return jsonify(agent.brain.status())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/learning/params")
+def api_learning_params():
+    """Return current adaptive parameters."""
+    try:
+        agent = get_agent()
+        return jsonify(agent.brain.optimizer.all_params())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/learning/regime")
+def api_learning_regime():
+    """Return current market regime and strategy weights."""
+    try:
+        agent = get_agent()
+        return jsonify({
+            "regime":           agent.brain.regime(),
+            "strategy_weights": agent.brain.strategy_weights(),
+            "market_status":    agent.brain.classifier.status(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── WebSocket ─────────────────────────────────────────────────
 
 @socketio.on("connect")

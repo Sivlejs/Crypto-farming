@@ -22,6 +22,7 @@
     <a class="nav-item"        data-tab="trades"      href="#">📋 Trades</a>
     <a class="nav-item"        data-tab="payout"      href="#">💸 Payout</a>
     <a class="nav-item"        data-tab="prices"      href="#">📈 Markets</a>
+    <a class="nav-item"        data-tab="brain"       href="#">🧠 AI Brain</a>
     <a class="nav-item"        data-tab="settings"    href="#">⚙️ Settings</a>
   </nav>
   <div class="sidebar-footer">
@@ -264,6 +265,87 @@
           <th>Base APY</th><th>Reward APY</th><th>Total APY</th><th>TVL</th>
         </tr></thead>
         <tbody id="yield-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: AI BRAIN ════════════════════════ -->
+  <div id="tab-brain" class="tab-content">
+    <div class="page-header">
+      <h1>🧠 AI Brain — Self-Learning System</h1>
+      <div class="header-actions">
+        <button class="btn btn-accent" onclick="loadBrain()">↺ Refresh</button>
+      </div>
+    </div>
+
+    <!-- Brain KPIs -->
+    <div class="kpi-row kpi-row-4">
+      <div class="kpi" id="bkpi-ml">
+        <div class="kpi-label">ML Model</div>
+        <div class="kpi-value" id="bkpi-ml-val">Warming Up</div>
+        <div class="kpi-sub" id="bkpi-ml-sub">collecting data</div>
+      </div>
+      <div class="kpi" id="bkpi-winrate">
+        <div class="kpi-label">Win Rate</div>
+        <div class="kpi-value green">0%</div>
+        <div class="kpi-sub">last 50 trades</div>
+      </div>
+      <div class="kpi" id="bkpi-regime">
+        <div class="kpi-label">Market Regime</div>
+        <div class="kpi-value accent2">–</div>
+        <div class="kpi-sub">detected condition</div>
+      </div>
+      <div class="kpi" id="bkpi-total">
+        <div class="kpi-label">Lifetime Profit</div>
+        <div class="kpi-value green">$0.00</div>
+        <div class="kpi-sub">from ML memory</div>
+      </div>
+    </div>
+
+    <!-- Learning progress + market weights -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">🎓 Learning Progress</div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>Trades to ML activation</span>
+            <span id="brain-progress-pct">0 / 30</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="brain-progress-bar" class="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-hint" id="brain-progress-hint">
+            Heuristic mode — collecting trade data…
+          </div>
+        </div>
+        <div id="brain-model-info" class="settings-list" style="padding-bottom:1rem"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">🌡 Market Regime & Strategy Weights</div>
+        <div id="brain-regime-panel" class="settings-list"></div>
+      </div>
+    </div>
+
+    <!-- Adaptive parameters + model history -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">⚙️ Adaptive Parameters</div>
+        <div id="brain-params" class="settings-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">📚 Model Version History</div>
+        <div id="brain-model-history" class="opp-ticker"></div>
+      </div>
+    </div>
+
+    <!-- Recent parameter changes -->
+    <div class="card no-pad">
+      <div class="card-head" style="padding:1rem 1.2rem">🔧 Recent Parameter Adjustments</div>
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Time</th><th>Parameter</th><th>Old Value</th><th>New Value</th><th>Reason</th>
+        </tr></thead>
+        <tbody id="brain-param-changes"></tbody>
       </table>
     </div>
   </div>

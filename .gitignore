@@ -39,3 +39,10 @@ Thumbs.db
 
 # Render
 .render-buildinfo.json
+
+# ML models + trade memory DB
+data/
+
+# Scripts
+scripts/*.sh
+data/

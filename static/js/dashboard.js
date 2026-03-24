@@ -633,3 +633,159 @@ loadYields();
 setInterval(poll,        15_000);
 setInterval(loadPayoutHistory, 30_000);
 setInterval(()=>{ if(document.querySelector('#tab-prices.active')) loadYields(); }, 60_000);
+
+/* ══════════════════════════════════════════════════════════════
+   AI Brain tab
+══════════════════════════════════════════════════════════════ */
+let _brain = {};
+
+async function loadBrain(){
+  try {
+    const r = await fetch('/api/learning');
+    _brain = await r.json();
+    renderBrain();
+  } catch(e){}
+}
+
+function renderBrain(){
+  const b = _brain;
+  if (!b || !b.model_info) return;
+
+  // KPIs
+  const mlActive  = b.ml_active;
+  const mlEl      = $('bkpi-ml-val');
+  const mlSub     = $('bkpi-ml-sub');
+  if (mlEl) {
+    mlEl.textContent = mlActive ? '✓ Active' : 'Warming Up';
+    mlEl.style.color = mlActive ? 'var(--green)' : 'var(--yellow)';
+  }
+  if (mlSub) mlSub.textContent = mlActive
+    ? `Trained on ${b.model_info.trained_on} trades`
+    : `Need ${b.trades_until_ml} more trades`;
+
+  const bWin = document.querySelector('#bkpi-winrate .kpi-value');
+  if (bWin) bWin.textContent = (b.win_rate || 0) + '%';
+
+  const regime = (b.market_regime || {}).regime || '–';
+  const bRegime = document.querySelector('#bkpi-regime .kpi-value');
+  if (bRegime) {
+    bRegime.textContent = regime.charAt(0).toUpperCase() + regime.slice(1);
+    bRegime.style.color = {volatile:'var(--red)', trending:'var(--orange)', calm:'var(--green)'}[regime] || 'var(--accent2)';
+  }
+
+  const bTotal = document.querySelector('#bkpi-total .kpi-value');
+  if (bTotal) bTotal.textContent = fmtUSD(b.total_profit_usd);
+
+  // Learning progress bar
+  const trained  = b.total_executed || 0;
+  const needed   = 30;
+  const pct      = Math.min(100, (trained / needed) * 100);
+  const bar      = $('brain-progress-bar');
+  const pctLabel = $('brain-progress-pct');
+  const hint     = $('brain-progress-hint');
+  if (bar)      bar.style.width   = pct + '%';
+  if (pctLabel) pctLabel.textContent = `${trained} / ${needed}`;
+  if (hint)     hint.textContent  = mlActive
+    ? `🧠 ML Model ACTIVE — accuracy improves each trade`
+    : `Heuristic mode — ${Math.max(0, needed - trained)} more trades to activate ML`;
+
+  // Model info
+  const mi = $('brain-model-info');
+  if (mi) {
+    const info = b.model_info || {};
+    mi.innerHTML = `
+      <div class="setting-row"><span class="setting-key">Status</span><span class="setting-val ${mlActive?'on':'warn'}">${mlActive?'ML Active (RandomForest)':'Heuristic Fallback'}</span></div>
+      <div class="setting-row"><span class="setting-key">Trained On</span><span class="setting-val">${info.trained_on || 0} trades</span></div>
+      <div class="setting-row"><span class="setting-key">Min Samples</span><span class="setting-val">${info.min_samples || 30}</span></div>
+      <div class="setting-row"><span class="setting-key">Total Evaluated</span><span class="setting-val">${b.total_evaluated || 0}</span></div>
+      <div class="setting-row"><span class="setting-key">Total Executed</span><span class="setting-val">${b.total_executed || 0}</span></div>
+      <div class="setting-row"><span class="setting-key">Best Trade</span><span class="setting-val green">${fmtUSD(b.best_trade_usd)}</span></div>`;
+  }
+
+  // Market regime panel
+  const mr = $('brain-regime-panel');
+  if (mr && b.market_regime) {
+    const weights = b.market_regime.strategy_weights || {};
+    const mstat   = b.market_regime;
+    mr.innerHTML = `
+      <div class="setting-row"><span class="setting-key">Regime</span><span class="setting-val">${regime}</span></div>
+      <div class="setting-row"><span class="setting-key">ETH Volatility</span><span class="setting-val">${fmt(mstat.eth_volatility_pct)}%</span></div>
+      <div class="setting-row"><span class="setting-key">BTC Volatility</span><span class="setting-val">${fmt(mstat.btc_volatility_pct)}%</span></div>
+      ` + Object.entries(weights).map(([k,v])=>`
+      <div class="setting-row">
+        <span class="setting-key">${k.replace('_',' ')}</span>
+        <span class="setting-val ${v>1.2?'on':v<0.8?'warn':''}">${v}× weight</span>
+      </div>`).join('');
+  }
+
+  // Adaptive params
+  const bp = $('brain-params');
+  if (bp && b.optimizer) {
+    const opt = b.optimizer;
+    const params = opt.params || {};
+    bp.innerHTML = `
+      <div class="setting-row"><span class="setting-key">Min Profit (USD)</span><span class="setting-val">${fmtUSD(params.min_profit_usd)}</span></div>
+      <div class="setting-row"><span class="setting-key">Gas Multiplier</span><span class="setting-val">${fmt(params.gas_multiplier, 3)}×</span></div>
+      <div class="setting-row"><span class="setting-key">Slippage Tolerance</span><span class="setting-val">${fmt(params.slippage_tolerance, 2)}%</span></div>
+      <div class="setting-row"><span class="setting-key">Confidence Threshold</span><span class="setting-val">${fmt(params.confidence_threshold, 3)}</span></div>
+      <div class="setting-row"><span class="setting-key">Win Rate (50 trades)</span><span class="setting-val ${opt.win_rate>60?'on':'warn'}">${opt.win_rate || 0}%</span></div>
+      <div class="setting-row"><span class="setting-key">Profit Accuracy</span><span class="setting-val">${fmt((opt.profit_accuracy||0)*100, 1)}%</span></div>`;
+  }
+
+  // Model version history
+  const mh = $('brain-model-history');
+  if (mh) {
+    const history = b.model_history || [];
+    if (!history.length) {
+      mh.innerHTML = '<div class="empty-state">No model versions yet — training begins after 30 trades</div>';
+    } else {
+      mh.innerHTML = history.map(v=>`
+        <div class="opp-item">
+          <div class="opp-row1">
+            <span class="opp-type-badge arbitrage">${v.model_type}</span>
+            <span class="opp-profit">${fmt(v.accuracy*100, 1)}% acc</span>
+          </div>
+          <div class="opp-desc">${v.n_samples} samples · ${v.notes || ''}</div>
+          <div class="opp-conf">${timeAgo(v.timestamp)}</div>
+        </div>`).join('');
+    }
+  }
+
+  // Parameter change log
+  const pc = $('brain-param-changes');
+  if (pc) {
+    const changes = (b.optimizer || {}).adjustments || b.param_changes || [];
+    if (!changes.length) {
+      pc.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text-dim)">No adjustments yet…</td></tr>';
+    } else {
+      pc.innerHTML = changes.slice(0,20).map(c=>`
+        <tr>
+          <td>${timeAgo(c.time||c.timestamp)}</td>
+          <td style="font-family:monospace;color:var(--accent2)">${c.param||c.param_name}</td>
+          <td style="color:var(--text-dim)">${fmt(c.old||c.old_value, 4)}</td>
+          <td style="color:var(--green);font-weight:700">${fmt(c.new||c.new_value, 4)}</td>
+          <td style="color:var(--text-dim);font-size:.78rem">${c.reason||''}</td>
+        </tr>`).join('');
+    }
+  }
+}
+
+// Load brain when switching to brain tab
+document.querySelectorAll('.nav-item[data-tab="brain"]').forEach(n=>{
+  n.addEventListener('click', loadBrain);
+});
+
+// Auto-refresh brain if tab is visible
+setInterval(()=>{
+  if (document.querySelector('#tab-brain.active')) loadBrain();
+}, 15_000);
+
+// Load brain data on initial load and wire into status updates
+(function(){
+  setTimeout(() => loadBrain(), 2000);
+
+  // Pull brain data from status update if included
+  socket.on('status_update', data => {
+    if (data && data.brain) { _brain = data.brain; renderBrain(); }
+  });
+})();
