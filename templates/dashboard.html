@@ -107,6 +107,40 @@
       <div id="config-panel" class="config-panel"></div>
     </div>
 
+    <!-- Payout panel -->
+    <div class="card payout-card">
+      <div class="card-header">
+        <span class="card-icon">💸</span> Reward Payout
+        <span id="payout-mode-badge" class="badge badge--info" style="margin-left:.5rem"></span>
+        <button id="sweep-btn" class="sweep-btn" title="Force an immediate payout sweep">Sweep Now</button>
+      </div>
+      <div class="payout-body">
+        <div class="payout-stats">
+          <div class="pstat">
+            <div class="pstat-label">Pending</div>
+            <div class="pstat-value" id="payout-pending">$0.00</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-label">Total Paid Out</div>
+            <div class="pstat-value" id="payout-total">$0.00</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-label">Payouts Sent</div>
+            <div class="pstat-value" id="payout-count">0</div>
+          </div>
+          <div class="pstat">
+            <div class="pstat-label">Threshold</div>
+            <div class="pstat-value" id="payout-threshold">$10.00</div>
+          </div>
+        </div>
+        <div class="payout-destination" id="payout-destination"></div>
+        <div class="payout-history-header">Recent Payouts</div>
+        <div id="payout-history" class="payout-history">
+          <div class="empty">No payouts yet…</div>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <footer>

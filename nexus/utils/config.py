@@ -55,6 +55,39 @@ class Config:
     # Dry-run (simulate only, no real transactions)
     DRY_RUN: bool = _bool("DRY_RUN", True)
 
+    # ── Payout settings ───────────────────────────────────────
+
+    # Minimum USD accumulated before triggering a payout sweep
+    PAYOUT_THRESHOLD_USD: float = _float("PAYOUT_THRESHOLD_USD", 10.0)
+
+    # On-chain destination address (Coinbase ETH/USDC deposit address,
+    # or Cash App deposit address, or any EVM wallet address)
+    PAYOUT_ADDRESS: str = os.getenv("PAYOUT_ADDRESS", "")
+
+    # Which chain to use for on-chain payouts
+    PAYOUT_CHAIN: str = os.getenv("PAYOUT_CHAIN", "ethereum")
+
+    # Which token to pay out in: USDC (default), ETH, BNB, MATIC, or NATIVE
+    PAYOUT_TOKEN: str = os.getenv("PAYOUT_TOKEN", "USDC")
+
+    # ── Coinbase API (optional) ───────────────────────────────
+    # Get keys at: https://www.coinbase.com/settings/api
+    COINBASE_API_KEY: str = os.getenv("COINBASE_API_KEY", "")
+    COINBASE_API_SECRET: str = os.getenv("COINBASE_API_SECRET", "")
+    # Optional: Coinbase account UUID (auto-detected if not set)
+    COINBASE_ACCOUNT_ID: str = os.getenv("COINBASE_ACCOUNT_ID", "")
+
+    # ── Cash App Bitcoin / Lightning (optional) ───────────────
+    # Lightning address: either user@domain.com format or Cash App $cashtag
+    # e.g. "$YourCashTag" or "you@cash.app"
+    PAYOUT_LIGHTNING_ADDRESS: str = os.getenv("PAYOUT_LIGHTNING_ADDRESS", "")
+
+    # Self-hosted Lightning node for automatic invoice payment (optional)
+    # Leave blank to receive invoices as logs for manual payment
+    LIGHTNING_NODE_URL: str = os.getenv("LIGHTNING_NODE_URL", "")
+    LIGHTNING_NODE_MACAROON: str = os.getenv("LIGHTNING_NODE_MACAROON", "")  # LND
+    LIGHTNING_NODE_API_KEY: str = os.getenv("LIGHTNING_NODE_API_KEY", "")   # LNbits
+
     # Enabled strategies
     STRATEGY_ARBITRAGE: bool = _bool("STRATEGY_ARBITRAGE", True)
     STRATEGY_YIELD_FARMING: bool = _bool("STRATEGY_YIELD_FARMING", True)
@@ -91,4 +124,13 @@ class Config:
                 "polygon": cls.CHAIN_POLYGON,
             },
             "wallet_configured": cls.is_configured(),
+            "payout": {
+                "threshold_usd": cls.PAYOUT_THRESHOLD_USD,
+                "address": cls.PAYOUT_ADDRESS or "not set",
+                "chain": cls.PAYOUT_CHAIN,
+                "token": cls.PAYOUT_TOKEN,
+                "coinbase_api": bool(cls.COINBASE_API_KEY and cls.COINBASE_API_SECRET),
+                "lightning_address": cls.PAYOUT_LIGHTNING_ADDRESS or "not set",
+                "lightning_node": bool(cls.LIGHTNING_NODE_URL),
+            },
         }

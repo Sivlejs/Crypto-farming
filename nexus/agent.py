@@ -15,6 +15,7 @@ from nexus.blockchain import get_blockchain_manager, BlockchainManager
 from nexus.monitor import OpportunityMonitor
 from nexus.executor import TransactionExecutor
 from nexus.rewards import RewardTracker
+from nexus.payout import get_payout_manager, PayoutManager
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -37,6 +38,7 @@ class NexusAgent:
         self.monitor: OpportunityMonitor = OpportunityMonitor(self.blockchain)
         self.executor: TransactionExecutor = TransactionExecutor(self.blockchain)
         self.tracker: RewardTracker = RewardTracker()
+        self.payout: PayoutManager = get_payout_manager(self.blockchain)
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
@@ -102,6 +104,10 @@ class NexusAgent:
             dry_run=Config.DRY_RUN,
         )
 
+        # Queue profit for automatic payout to Coinbase / Cash App
+        if tx_hash:
+            self.payout.queue(opp.estimated_profit_usd, opp.chain)
+
     # ── Status / reporting ────────────────────────────────────
 
     def status(self) -> dict:
@@ -114,6 +120,7 @@ class NexusAgent:
             "blockchain": self.blockchain.status(),
             "monitor": self.monitor.status(),
             "rewards": self.tracker.get_stats(),
+            "payout": self.payout.status(),
         }
 
     def get_opportunities(self, limit: int = 20) -> list:
@@ -121,6 +128,12 @@ class NexusAgent:
 
     def get_recent_trades(self, limit: int = 50) -> list:
         return self.tracker.get_recent_trades(limit=limit)
+
+    def get_payout_history(self, limit: int = 20) -> list:
+        return self.payout.history(limit=limit)
+
+    def force_payout(self, chain: str = "ethereum") -> dict:
+        return self.payout.sweep_now(chain=chain)
 
 
 # ── Singleton ─────────────────────────────────────────────────

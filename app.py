@@ -126,6 +126,39 @@ def api_config():
     return jsonify(Config.to_dict())
 
 
+@app.route("/api/payout")
+def api_payout():
+    """Current payout status and accumulated pending balance."""
+    try:
+        agent = get_agent()
+        return jsonify(agent.payout.status())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/payout/history")
+def api_payout_history():
+    """Recent payout transactions."""
+    try:
+        limit = int(request.args.get("limit", 20))
+        agent = get_agent()
+        return jsonify(agent.get_payout_history(limit=limit))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/payout/sweep", methods=["POST"])
+def api_payout_sweep():
+    """Manually trigger an immediate payout sweep."""
+    try:
+        chain = request.json.get("chain", "ethereum") if request.is_json else "ethereum"
+        agent = get_agent()
+        result = agent.force_payout(chain=chain)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── WebSocket ─────────────────────────────────────────────────
 
 @socketio.on("connect")
@@ -145,6 +178,7 @@ def _push_status():
         emit("status_update", agent.status())
         emit("opportunities_update", agent.get_opportunities(limit=10))
         emit("trades_update", agent.get_recent_trades(limit=10))
+        emit("payout_update", agent.payout.status())
     except Exception as exc:
         logger.debug("WebSocket push failed: %s", exc)
 
@@ -158,6 +192,7 @@ def _background_pusher():
             socketio.emit("status_update", agent.status())
             socketio.emit("opportunities_update", agent.get_opportunities(limit=10))
             socketio.emit("trades_update", agent.get_recent_trades(limit=10))
+            socketio.emit("payout_update", agent.payout.status())
         except Exception:
             pass
 
