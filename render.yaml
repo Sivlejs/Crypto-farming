@@ -36,3 +36,4 @@ services:
     region: oregon
     plan: starter
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []  # only allow access from private network (Render services)
