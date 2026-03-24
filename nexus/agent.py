@@ -19,6 +19,7 @@ from nexus.payout import get_payout_manager, PayoutManager
 from nexus.feeds.price_feed import get_price_feed, PriceFeed
 from nexus.execution.bundle_submitter import get_bundle_submitter
 from nexus.learning.brain import get_brain, NexusBrain
+from nexus.timing.trade_scheduler import get_trade_scheduler, TradeScheduler
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -45,6 +46,7 @@ class NexusAgent:
         self.feed: PriceFeed = get_price_feed()
         self.bundler = get_bundle_submitter()
         self.brain: NexusBrain = get_brain()
+        self.scheduler: TradeScheduler = get_trade_scheduler()
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
@@ -64,6 +66,7 @@ class NexusAgent:
         self._start_time = time.time()
         self.feed.start()           # Start real-time price feed
         self.monitor.start()        # Start block-triggered opportunity scanner
+        self.scheduler.start()      # Start trade scheduler + gas oracle
         self._exec_thread = threading.Thread(target=self._execution_loop, daemon=True)
         self._exec_thread.start()
         logger.info("Nexus AI is running.")
@@ -73,6 +76,7 @@ class NexusAgent:
         self._running = False
         self.feed.stop()
         self.monitor.stop()
+        self.scheduler.stop()
         self.blockchain.stop()
         if self._exec_thread:
             self._exec_thread.join(timeout=10)

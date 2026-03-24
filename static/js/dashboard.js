@@ -789,3 +789,259 @@ setInterval(()=>{
     if (data && data.brain) { _brain = data.brain; renderBrain(); }
   });
 })();
+
+// ══════════════════════════════════════════════════════════════
+//  NEXUS CHAT & VOICE
+// ══════════════════════════════════════════════════════════════
+
+let _chatOpen = false;
+let _recognition = null;
+let _isListening = false;
+let _speechSynthesis = window.speechSynthesis || null;
+
+// ── Toggle chat panel ─────────────────────────────────────────
+function toggleChat() {
+  _chatOpen = !_chatOpen;
+  const panel = document.getElementById('nexus-chat-panel');
+  const icon  = document.getElementById('chat-toggle-icon');
+  panel.classList.toggle('open', _chatOpen);
+  icon.textContent = _chatOpen ? '✕' : '💬';
+  if (_chatOpen && document.getElementById('nexus-chat-messages').children.length === 0) {
+    addNexusMsg("Hello! I'm Nexus, your AI crypto farming assistant. Ask me anything — status, profits, strategies, or just say 'help'. You can also click 🎤 to speak to me.", 'nexus');
+  }
+}
+
+function clearChat() {
+  document.getElementById('nexus-chat-messages').innerHTML = '';
+  fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message:'__clear__'})}).catch(()=>{});
+  addNexusMsg("Chat history cleared. How can I help you?", 'nexus');
+}
+
+// ── Send message ──────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('nexus-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addNexusMsg(text, 'user');
+  const typingId = addNexusMsg('Thinking…', 'typing');
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: text})
+    });
+    const data = await resp.json();
+    removeMsg(typingId);
+    const reply = data.reply || data.error || 'Sorry, I had trouble understanding that.';
+    addNexusMsg(reply, 'nexus');
+    if (data.speak !== false) speakText(reply);
+  } catch(e) {
+    removeMsg(typingId);
+    addNexusMsg('Connection error. Try again.', 'nexus');
+  }
+}
+
+function addNexusMsg(text, role) {
+  const msgs = document.getElementById('nexus-chat-messages');
+  const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.id = id;
+  div.textContent = text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return id;
+}
+
+function removeMsg(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+// ── Text-to-speech ────────────────────────────────────────────
+async function speakText(text) {
+  if (!text || text.length < 3) return;
+  try {
+    // Try server-side TTS first (ElevenLabs if configured)
+    const resp = await fetch('/api/voice/tts', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text})
+    });
+    if (resp.headers.get('content-type') === 'audio/mpeg') {
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play().catch(()=>{});
+      return;
+    }
+    // Fallback: browser speechSynthesis
+    const json = await resp.json();
+    if (json.use_browser_tts) browserSpeak(text);
+  } catch(e) {
+    browserSpeak(text);
+  }
+}
+
+function browserSpeak(text) {
+  if (!_speechSynthesis) return;
+  _speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.rate  = 1.05;
+  utt.pitch = 1.0;
+  // Prefer a deep/clear voice if available
+  const voices = _speechSynthesis.getVoices();
+  const preferred = voices.find(v =>
+    /google|daniel|alex|samantha|en-us/i.test(v.name + v.lang)
+  );
+  if (preferred) utt.voice = preferred;
+  _speechSynthesis.speak(utt);
+}
+
+// ── Voice recognition ─────────────────────────────────────────
+function initVoiceRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    document.getElementById('mic-btn').title = 'Speech recognition not supported in this browser';
+    return;
+  }
+  _recognition = new SpeechRec();
+  _recognition.continuous = false;
+  _recognition.interimResults = false;
+  _recognition.lang = 'en-US';
+
+  _recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.trim();
+    document.getElementById('nexus-chat-input').value = transcript;
+    stopVoice();
+    sendChat();
+  };
+  _recognition.onerror = (e) => {
+    console.warn('Speech error:', e.error);
+    stopVoice();
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      addNexusMsg("Couldn't hear you clearly. Try again.", 'nexus');
+    }
+  };
+  _recognition.onend = () => stopVoice();
+
+  document.getElementById('nexus-voice-status').classList.add('active');
+  document.getElementById('mic-btn').title = 'Click to speak';
+}
+
+function toggleVoice() {
+  if (!_recognition) {
+    addNexusMsg('Voice recognition is not supported in this browser. Try Chrome or Edge.', 'nexus');
+    return;
+  }
+  if (!_chatOpen) toggleChat();
+  _isListening ? stopVoice() : startVoice();
+}
+
+function startVoice() {
+  if (!_recognition || _isListening) return;
+  _isListening = true;
+  _recognition.start();
+  document.getElementById('mic-btn').classList.add('recording');
+  document.getElementById('nexus-voice-indicator').style.display = 'flex';
+  document.getElementById('nexus-voice-status').classList.add('listening');
+  document.getElementById('nexus-voice-status').classList.remove('active');
+}
+
+function stopVoice() {
+  if (!_isListening) return;
+  _isListening = false;
+  try { _recognition.stop(); } catch(e) {}
+  document.getElementById('mic-btn').classList.remove('recording');
+  document.getElementById('nexus-voice-indicator').style.display = 'none';
+  document.getElementById('nexus-voice-status').classList.remove('listening');
+  document.getElementById('nexus-voice-status').classList.add('active');
+}
+
+// Init voice on page load
+initVoiceRecognition();
+
+// ══════════════════════════════════════════════════════════════
+//  TIMING TAB
+// ══════════════════════════════════════════════════════════════
+
+const _STRATEGY_URGENCY = {
+  flash_arbitrage:   {label:'Flash Arbitrage',   urgency:'⚡ Instant', color:'var(--red)'},
+  arbitrage:         {label:'Arbitrage',         urgency:'⚡ Instant', color:'var(--red)'},
+  liquidation:       {label:'Liquidation',       urgency:'⚡ Instant', color:'var(--red)'},
+  triangular_arb:    {label:'Triangular Arb',    urgency:'⚡ Instant', color:'var(--red)'},
+  stablecoin_arb:    {label:'Stablecoin Arb',    urgency:'⚡ Instant', color:'var(--red)'},
+  cross_chain_arb:   {label:'Cross-Chain Arb',   urgency:'🔶 Normal',  color:'var(--orange)'},
+  perp_funding:      {label:'Perp Funding',      urgency:'🔶 Normal',  color:'var(--orange)'},
+  yield_farming:     {label:'Yield Farming',     urgency:'✅ Deferred', color:'var(--green)'},
+  liquidity_mining:  {label:'Liquidity Mining',  urgency:'✅ Deferred', color:'var(--green)'},
+  staking:           {label:'Staking',           urgency:'✅ Deferred', color:'var(--green)'},
+  lending:           {label:'Lending',           urgency:'✅ Deferred', color:'var(--green)'},
+  governance_farming:{label:'Governance',        urgency:'✅ Deferred', color:'var(--green)'},
+  vault_optimizer:   {label:'Vault Optimizer',   urgency:'✅ Deferred', color:'var(--green)'},
+};
+
+async function loadTiming() {
+  try {
+    const data = await fetch('/api/timing').then(r=>r.json());
+    const oracle = data.gas_oracle || {};
+    const bestGas = oracle.best_gas || {};
+
+    // KPIs
+    setText('tkpi-gas-val', oracle.current_gwei != null ? oracle.current_gwei + ' Gwei' : '–');
+    const isCheap = oracle.is_cheap;
+    setText('tkpi-cheap-val', isCheap === true ? '🟢 CHEAP' : isCheap === false ? '🔴 EXPENSIVE' : '–');
+    setText('tkpi-cheap-sub', oracle.should_wait ? 'Deferring non-urgent trades' : 'Executing normally');
+    setText('tkpi-queue-val', data.queue_size ?? 0);
+    const ch = oracle.cheapest_hour;
+    setText('tkpi-cheapest-hour-val', ch != null ? `${ch}:00 UTC` : 'Collecting data…');
+
+    // Gas oracle stats
+    const gasEl = document.getElementById('gas-oracle-stats');
+    if (gasEl && oracle.samples != null) {
+      gasEl.innerHTML = [
+        ['Samples collected', oracle.samples],
+        ['Mean gas (Gwei)',    oracle.mean_gwei ?? '–'],
+        ['25th pct (cheap)',  oracle.p25_gwei ?? '–'],
+        ['75th pct (expensive)', oracle.p75_gwei ?? '–'],
+        ['Recommended maxFee', bestGas.max_fee_gwei ? bestGas.max_fee_gwei + ' Gwei' : '–'],
+        ['Priority fee',      bestGas.priority_fee_gwei ? bestGas.priority_fee_gwei + ' Gwei' : '–'],
+      ].map(([k,v]) => `<div class="settings-row"><span>${k}</span><span>${v}</span></div>`).join('');
+    }
+
+    // Scheduler stats
+    const schedEl = document.getElementById('scheduler-stats');
+    if (schedEl) {
+      schedEl.innerHTML = [
+        ['Trades submitted', data.submitted ?? 0],
+        ['Trades expired',   data.expired   ?? 0],
+        ['Queue size',       data.queue_size ?? 0],
+        ['Scheduler running', data.running ? '✅ Yes' : '⛔ No'],
+      ].map(([k,v]) => `<div class="settings-row"><span>${k}</span><span>${v}</span></div>`).join('');
+    }
+
+    // Strategy urgency table
+    const tbl = document.getElementById('timing-strategy-table');
+    if (tbl) {
+      tbl.innerHTML = '<div style="font-size:.82rem;color:var(--text-dim);margin-bottom:.6rem">Strategy execution scheduling mode:</div>' +
+        Object.entries(_STRATEGY_URGENCY).map(([key, s]) =>
+          `<div class="settings-row"><span>${s.label}</span><span style="color:${s.color};font-weight:600">${s.urgency}</span></div>`
+        ).join('');
+    }
+
+  } catch(e) { console.warn('Timing load error', e); }
+}
+
+// Load timing when switching to tab
+document.querySelectorAll('.nav-item[data-tab="timing"]').forEach(n => {
+  n.addEventListener('click', loadTiming);
+});
+
+// Auto-refresh timing tab
+setInterval(() => {
+  if (document.querySelector('#tab-timing.active')) loadTiming();
+}, 20_000);
+
+setTimeout(() => loadTiming(), 3000);

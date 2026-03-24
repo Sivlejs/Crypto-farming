@@ -103,11 +103,46 @@ class Config:
     # Deployed FlashArbitrage contract address (per chain, comma-sep: eth:0x...,polygon:0x...)
     FLASH_CONTRACT_ETH: str = os.getenv("FLASH_CONTRACT_ETH", "")
     FLASH_CONTRACT_POLYGON: str = os.getenv("FLASH_CONTRACT_POLYGON", "")
+    FLASH_CONTRACT_ARBITRUM: str = os.getenv("FLASH_CONTRACT_ARBITRUM", "")
 
-    # Enabled chains
+    # Enabled chains (original three)
     CHAIN_ETH: bool = _bool("CHAIN_ETH", True)
     CHAIN_BSC: bool = _bool("CHAIN_BSC", True)
     CHAIN_POLYGON: bool = _bool("CHAIN_POLYGON", True)
+
+    # ── Additional chains ─────────────────────────────────────
+    CHAIN_ARBITRUM: bool = _bool("CHAIN_ARBITRUM", False)
+    CHAIN_OPTIMISM: bool = _bool("CHAIN_OPTIMISM", False)
+    CHAIN_BASE: bool = _bool("CHAIN_BASE", False)
+    CHAIN_AVALANCHE: bool = _bool("CHAIN_AVALANCHE", False)
+
+    ARBITRUM_RPC_URL: str = os.getenv("ARBITRUM_RPC_URL", "https://arb1.arbitrum.io/rpc")
+    OPTIMISM_RPC_URL: str = os.getenv("OPTIMISM_RPC_URL", "https://mainnet.optimism.io")
+    BASE_RPC_URL: str = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    AVALANCHE_RPC_URL: str = os.getenv("AVALANCHE_RPC_URL", "https://api.avax.network/ext/bc/C/rpc")
+
+    # ── OpenAI / Chat settings ────────────────────────────────
+    # Used by NexusChat for intelligent conversational responses
+    # Get key at: https://platform.openai.com/api-keys
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o")
+    # Override base URL for OpenAI-compatible APIs (e.g. LM Studio, Groq, Together)
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")
+
+    # ── Voice / TTS settings ──────────────────────────────────
+    # Voice recognition: uses browser Web Speech API (no API key needed)
+    # TTS: uses browser speechSynthesis by default; set ELEVENLABS_API_KEY for
+    # high-quality neural voice
+    ELEVENLABS_API_KEY: str = os.getenv("ELEVENLABS_API_KEY", "")
+    ELEVENLABS_VOICE_ID: str = os.getenv("ELEVENLABS_VOICE_ID", "")
+    # Voice wake word (optional; triggered by holding mic button by default)
+    VOICE_WAKE_WORD: str = os.getenv("VOICE_WAKE_WORD", "nexus")
+
+    # ── Timing / scheduling settings ─────────────────────────
+    # How many historical gas samples to keep for the gas oracle
+    GAS_ORACLE_SAMPLES: int = _int("GAS_ORACLE_SAMPLES", 100)
+    # Seconds between gas price samples
+    GAS_SAMPLE_INTERVAL: int = _int("GAS_SAMPLE_INTERVAL", 60)
 
     @classmethod
     def is_configured(cls) -> bool:
@@ -125,16 +160,29 @@ class Config:
             "max_trade_usd": cls.MAX_TRADE_USD,
             "scan_interval_seconds": cls.SCAN_INTERVAL_SECONDS,
             "strategies": {
-                "arbitrage": cls.STRATEGY_ARBITRAGE,
-                "yield_farming": cls.STRATEGY_YIELD_FARMING,
-                "liquidity_mining": cls.STRATEGY_LIQUIDITY_MINING,
+                "arbitrage":          cls.STRATEGY_ARBITRAGE,
+                "yield_farming":      cls.STRATEGY_YIELD_FARMING,
+                "liquidity_mining":   cls.STRATEGY_LIQUIDITY_MINING,
+                "liquidation":        cls.STRATEGY_LIQUIDATION,
             },
             "chains": {
-                "ethereum": cls.CHAIN_ETH,
-                "bsc": cls.CHAIN_BSC,
-                "polygon": cls.CHAIN_POLYGON,
+                "ethereum":  cls.CHAIN_ETH,
+                "bsc":       cls.CHAIN_BSC,
+                "polygon":   cls.CHAIN_POLYGON,
+                "arbitrum":  cls.CHAIN_ARBITRUM,
+                "optimism":  cls.CHAIN_OPTIMISM,
+                "base":      cls.CHAIN_BASE,
+                "avalanche": cls.CHAIN_AVALANCHE,
             },
             "wallet_configured": cls.is_configured(),
+            "openai": {
+                "configured": bool(cls.OPENAI_API_KEY),
+                "model":      cls.OPENAI_MODEL,
+            },
+            "voice": {
+                "elevenlabs": bool(cls.ELEVENLABS_API_KEY),
+                "wake_word":  cls.VOICE_WAKE_WORD,
+            },
             "payout": {
                 "threshold_usd": cls.PAYOUT_THRESHOLD_USD,
                 "address": cls.PAYOUT_ADDRESS or "not set",

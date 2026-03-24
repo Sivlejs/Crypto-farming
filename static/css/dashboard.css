@@ -249,6 +249,100 @@ body{display:flex;min-height:100vh}
 .toast.info   {background:rgba(0,212,255,.15); border:1px solid rgba(0,212,255,.4); color:var(--accent)}
 @keyframes slide-in{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
 
+/* ── Nexus Chat Widget ───────────────────────────────────────── */
+#nexus-chat-widget{
+  position:fixed;bottom:1.5rem;right:1.5rem;z-index:1000;
+  display:flex;flex-direction:column;align-items:flex-end;gap:.8rem;
+}
+#chat-toggle-btn{
+  width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  font-size:1.5rem;box-shadow:0 4px 24px rgba(0,212,255,.45);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .18s,box-shadow .18s;
+}
+#chat-toggle-btn:hover{transform:scale(1.12);box-shadow:0 6px 32px rgba(0,212,255,.65)}
+#nexus-chat-panel{
+  width:360px;max-width:calc(100vw - 2rem);
+  background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);
+  box-shadow:0 12px 48px rgba(0,0,0,.7);display:none;flex-direction:column;
+  overflow:hidden;
+}
+#nexus-chat-panel.open{display:flex}
+#nexus-chat-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.7rem 1rem;background:var(--bg3);border-bottom:1px solid var(--border);
+  font-weight:700;font-size:.9rem;color:var(--accent);
+}
+.chat-header-actions{display:flex;align-items:center;gap:.4rem}
+.chat-hdr-btn{
+  background:none;border:none;cursor:pointer;color:var(--text-dim);
+  font-size:.9rem;padding:.2rem .35rem;border-radius:4px;transition:color .15s,background .15s;
+}
+.chat-hdr-btn:hover{color:var(--text);background:var(--bg4)}
+.voice-status-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--text-dim);
+  display:inline-block;transition:background .3s;
+}
+.voice-status-dot.active{background:var(--green);box-shadow:0 0 6px var(--green)}
+.voice-status-dot.listening{background:var(--red);box-shadow:0 0 8px var(--red);animation:pulse-dot 1s infinite}
+#nexus-chat-messages{
+  flex:1;overflow-y:auto;padding:.8rem;display:flex;flex-direction:column;
+  gap:.55rem;min-height:220px;max-height:320px;
+}
+.chat-msg{
+  max-width:85%;padding:.55rem .8rem;border-radius:10px;font-size:.84rem;
+  line-height:1.45;word-break:break-word;
+}
+.chat-msg.user{
+  align-self:flex-end;background:rgba(0,212,255,.18);color:var(--text);
+  border-bottom-right-radius:3px;
+}
+.chat-msg.nexus{
+  align-self:flex-start;background:var(--bg3);color:var(--text);
+  border-bottom-left-radius:3px;border:1px solid var(--border);
+}
+.chat-msg.typing{
+  align-self:flex-start;background:var(--bg3);border:1px solid var(--border);
+  color:var(--text-dim);font-style:italic;border-bottom-left-radius:3px;
+}
+#nexus-chat-input-row{
+  display:flex;align-items:center;gap:.4rem;
+  padding:.7rem .8rem;border-top:1px solid var(--border);background:var(--bg3);
+}
+#mic-btn{
+  width:36px;height:36px;border-radius:50%;border:1.5px solid var(--border2);
+  background:var(--bg4);cursor:pointer;font-size:1rem;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;
+}
+#mic-btn:hover{border-color:var(--accent);background:rgba(0,212,255,.1)}
+#mic-btn.recording{
+  border-color:var(--red);background:rgba(255,64,96,.2);
+  animation:pulse-dot 1s infinite;
+}
+#nexus-chat-input{
+  flex:1;background:var(--bg4);border:1px solid var(--border2);
+  border-radius:6px;color:var(--text);font-size:.84rem;
+  padding:.4rem .7rem;outline:none;transition:border .15s;
+}
+#nexus-chat-input:focus{border-color:var(--accent)}
+#send-btn{
+  width:34px;height:34px;border-radius:6px;border:none;
+  background:var(--accent);color:#000;cursor:pointer;font-size:1rem;
+  font-weight:700;transition:opacity .15s;
+}
+#send-btn:hover{opacity:.85}
+#nexus-voice-indicator{
+  display:flex;align-items:center;gap:.5rem;padding:.35rem .8rem;
+  background:rgba(255,64,96,.12);font-size:.78rem;color:var(--red);
+  border-top:1px solid rgba(255,64,96,.2);
+}
+.pulse-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--red);
+  animation:pulse-dot 1s infinite;
+}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+
 /* ── Responsive ─────────────────────────────────────────────── */
 @media(max-width:1100px){.kpi-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:900px){
@@ -261,4 +355,5 @@ body{display:flex;min-height:100vh}
   #main{margin-left:0;max-width:100vw}
   #menu-toggle{display:block}
   .kpi-row,.kpi-row-4{grid-template-columns:1fr 1fr}
+  #nexus-chat-panel{width:calc(100vw - 2rem)}
 }

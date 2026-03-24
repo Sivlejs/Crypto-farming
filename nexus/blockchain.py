@@ -44,6 +44,34 @@ CHAIN_INFO: Dict[str, dict] = {
         "explorer": "https://polygonscan.com",
         "poa": True,
     },
+    "arbitrum": {
+        "chain_id": 42161,
+        "name": "Arbitrum One",
+        "symbol": "ETH",
+        "explorer": "https://arbiscan.io",
+        "poa": False,
+    },
+    "optimism": {
+        "chain_id": 10,
+        "name": "Optimism",
+        "symbol": "ETH",
+        "explorer": "https://optimistic.etherscan.io",
+        "poa": False,
+    },
+    "base": {
+        "chain_id": 8453,
+        "name": "Base",
+        "symbol": "ETH",
+        "explorer": "https://basescan.org",
+        "poa": False,
+    },
+    "avalanche": {
+        "chain_id": 43114,
+        "name": "Avalanche C-Chain",
+        "symbol": "AVAX",
+        "explorer": "https://snowtrace.io",
+        "poa": False,
+    },
 }
 
 # Primary + fallback RPC endpoints per chain
@@ -66,12 +94,40 @@ _RPC_FALLBACKS: Dict[str, List[str]] = {
         "https://rpc.ankr.com/polygon",
         "https://matic-mainnet.chainstacklabs.com",
     ],
+    "arbitrum": [
+        Config.ARBITRUM_RPC_URL,
+        "https://arb1.arbitrum.io/rpc",
+        "https://rpc.ankr.com/arbitrum",
+        "https://arbitrum.llamarpc.com",
+    ],
+    "optimism": [
+        Config.OPTIMISM_RPC_URL,
+        "https://mainnet.optimism.io",
+        "https://rpc.ankr.com/optimism",
+        "https://optimism.llamarpc.com",
+    ],
+    "base": [
+        Config.BASE_RPC_URL,
+        "https://mainnet.base.org",
+        "https://rpc.ankr.com/base",
+        "https://base.llamarpc.com",
+    ],
+    "avalanche": [
+        Config.AVALANCHE_RPC_URL,
+        "https://api.avax.network/ext/bc/C/rpc",
+        "https://rpc.ankr.com/avalanche",
+        "https://avalanche.public-rpc.com",
+    ],
 }
 
 _ENABLED_MAP = {
-    "ethereum": Config.CHAIN_ETH,
-    "bsc": Config.CHAIN_BSC,
-    "polygon": Config.CHAIN_POLYGON,
+    "ethereum":  Config.CHAIN_ETH,
+    "bsc":       Config.CHAIN_BSC,
+    "polygon":   Config.CHAIN_POLYGON,
+    "arbitrum":  Config.CHAIN_ARBITRUM,
+    "optimism":  Config.CHAIN_OPTIMISM,
+    "base":      Config.CHAIN_BASE,
+    "avalanche": Config.CHAIN_AVALANCHE,
 }
 
 # Block poll interval when WebSocket is not available

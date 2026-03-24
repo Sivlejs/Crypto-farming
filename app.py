@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, Response
 from flask_socketio import SocketIO, emit
 import threading
 import time
@@ -15,6 +15,8 @@ import time
 from nexus.agent import get_agent
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
+from nexus.chat.nexus_llm import get_chat_engine
+from nexus.voice.engine import get_voice_engine
 
 logger = get_logger(__name__)
 
@@ -189,6 +191,143 @@ def api_learning_regime():
             "strategy_weights": agent.brain.strategy_weights(),
             "market_status":    agent.brain.classifier.status(),
         })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Chat & Voice API ──────────────────────────────────────────
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """
+    Send a text (or voice-transcribed) message to Nexus AI and get a reply.
+
+    Request JSON:
+        { "message": "What's my profit?", "speak": true }
+
+    Response JSON:
+        { "reply": "...", "intent": "profit", "action": null, "speak": true }
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        user_message = (data.get("message") or "").strip()
+        if not user_message:
+            return jsonify({"error": "message is required"}), 400
+
+        # Gather live bot status for context
+        bot_status = {}
+        try:
+            agent = get_agent()
+            bot_status = agent.status()
+        except Exception:
+            pass
+
+        chat = get_chat_engine()
+        result = chat.chat(user_message, bot_status=bot_status)
+
+        # Execute any requested bot action
+        action = result.get("action")
+        if action == "start":
+            try:
+                get_agent().start()
+            except Exception:
+                pass
+        elif action == "stop":
+            try:
+                get_agent().stop()
+            except Exception:
+                pass
+        elif action == "payout":
+            try:
+                get_agent().force_payout()
+            except Exception:
+                pass
+        elif action == "set_dry_run":
+            try:
+                dry = data.get("dry_run", True)
+                Config.DRY_RUN = dry
+            except Exception:
+                pass
+
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("Chat error: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/voice/tts", methods=["POST"])
+def api_voice_tts():
+    """
+    Text-to-speech endpoint.
+
+    Request JSON: { "text": "Hello from Nexus" }
+    Response:
+      - MP3 audio bytes (Content-Type: audio/mpeg) if ElevenLabs is configured
+      - JSON { "use_browser_tts": true, "text": "..." } otherwise
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        text = (data.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "text is required"}), 400
+
+        engine = get_voice_engine()
+        audio = engine.text_to_speech(text)
+        if audio:
+            return Response(audio, mimetype="audio/mpeg")
+        # Signal client to use browser synthesis
+        return jsonify({"use_browser_tts": True, "text": text})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/voice/status")
+def api_voice_status():
+    """Return voice engine configuration."""
+    try:
+        engine = get_voice_engine()
+        return jsonify(engine.status())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Bot Control API ───────────────────────────────────────────
+
+@app.route("/api/control", methods=["POST"])
+def api_control():
+    """
+    Control the bot from the dashboard.
+
+    Request JSON: { "action": "start" | "stop" | "set_dry_run", "value": ... }
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        action = data.get("action", "")
+        agent = get_agent()
+        if action == "start":
+            agent.start()
+            return jsonify({"ok": True, "action": "start"})
+        elif action == "stop":
+            agent.stop()
+            return jsonify({"ok": True, "action": "stop"})
+        elif action == "set_dry_run":
+            val = bool(data.get("value", True))
+            Config.DRY_RUN = val
+            return jsonify({"ok": True, "dry_run": val})
+        return jsonify({"error": f"Unknown action: {action}"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Timing API ────────────────────────────────────────────────
+
+@app.route("/api/timing")
+def api_timing():
+    """Return gas oracle and trade scheduler stats."""
+    try:
+        from nexus.timing.trade_scheduler import get_trade_scheduler
+        scheduler = get_trade_scheduler()
+        return jsonify(scheduler.stats())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
