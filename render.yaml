@@ -37,6 +37,11 @@ services:
         value: "1"
       - key: PORT
         value: "10000"
+      - key: REDIS_URL
+        fromService:
+          name: nexus-ai-redis
+          type: redis
+          property: connectionString
       - fromGroup: nexus-ai-secrets
 
   # ── Background Worker (the actual farming bot) ────────────────
@@ -50,6 +55,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: REDIS_URL
+        fromService:
+          name: nexus-ai-redis
+          type: redis
+          property: connectionString
       - fromGroup: nexus-ai-secrets
 
   # ── Redis (shared state + ML model cache) ─────────────────────
