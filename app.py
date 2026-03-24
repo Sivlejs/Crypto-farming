@@ -5,6 +5,12 @@ Provides a real-time dashboard and REST API for the crypto farming agent.
 """
 from __future__ import annotations
 
+# ── Eventlet monkey patching ──────────────────────────────────
+# MUST happen before ANY other imports (threading, socket, ssl, etc.)
+# Required for gunicorn eventlet worker and Flask-SocketIO async_mode="eventlet"
+import eventlet
+eventlet.monkey_patch()
+
 import os
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for, Response
