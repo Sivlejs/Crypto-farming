@@ -1,0 +1,38 @@
+services:
+  # ── Web Dashboard + API ──────────────────────────────────────
+  - type: web
+    name: nexus-ai-web
+    env: python
+    region: oregon
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --config gunicorn.conf.py app:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: PORT
+        value: "10000"
+      - fromGroup: nexus-ai-secrets
+
+  # ── Background Worker (the actual farming bot) ────────────────
+  - type: worker
+    name: nexus-ai-worker
+    env: python
+    region: oregon
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: python nexus/worker.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - fromGroup: nexus-ai-secrets
+
+  # ── Redis (shared state + ML model cache) ─────────────────────
+  - type: redis
+    name: nexus-ai-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: allkeys-lru

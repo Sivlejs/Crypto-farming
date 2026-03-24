@@ -1,0 +1,89 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════
+#  Nexus AI — Full Stack (local development & VPS)
+#  Run: docker-compose up -d
+# ══════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Redis ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Web Dashboard + API ─────────────────────────────────────
+  web:
+    build: .
+    container_name: nexus-web
+    restart: unless-stopped
+    command: gunicorn --config gunicorn.conf.py app:app
+    ports:
+      - "10000:10000"
+    env_file:
+      - .env
+    environment:
+      - PORT=10000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data        # persist ML models + trade memory
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Background Worker (full-capacity farming bot) ────────────
+  worker:
+    build: .
+    container_name: nexus-worker
+    restart: unless-stopped
+    command: python nexus/worker.py
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data        # shared ML model + trade memory storage
+    deploy:
+      resources:
+        limits:
+          cpus:   "2.0"         # give the worker dedicated 2 CPU cores
+          memory: "3G"
+
+  # ── Monitoring (optional — Prometheus + Grafana) ─────────────
+  # Uncomment to enable metrics dashboards
+  #
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   volumes:
+  #     - ./scripts/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9090:9090"
+  #
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - prometheus
+
+volumes:
+  redis-data:

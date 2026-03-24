@@ -1,0 +1,38 @@
+# Web framework
+flask>=3.0
+flask-socketio>=5.3
+flask-sqlalchemy>=3.1
+gunicorn>=22.0
+eventlet>=0.35
+
+# Blockchain
+web3>=6.0
+eth-account>=0.10
+
+# HTTP & async
+requests>=2.31
+aiohttp>=3.9
+
+# Scheduling & background tasks
+apscheduler>=3.10
+celery>=5.3
+redis>=5.0
+
+# Database
+sqlalchemy>=2.0
+
+# Environment & config
+python-dotenv>=1.0
+
+# Data processing & ML
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.4
+joblib>=1.3
+
+# Voice / TTS (ElevenLabs via HTTP; gTTS as offline fallback)
+gTTS>=2.4
+
+# Utilities
+retry>=0.9
+cachetools>=5.0
