@@ -1,152 +1,310 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Nexus AI – Crypto Farmer</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}"/>
 </head>
 <body>
-  <!-- ── Header ─────────────────────────────────────────── -->
-  <header>
-    <div class="header-inner">
-      <div class="logo">
-        <span class="logo-icon">⬡</span>
-        <span class="logo-text">NEXUS <span class="ai">AI</span></span>
-      </div>
-      <div class="header-meta">
-        <span id="status-badge" class="badge badge--offline">● Connecting…</span>
-        <span id="dry-run-badge" class="badge badge--info" style="display:none">DRY RUN</span>
-        <span id="uptime"></span>
-      </div>
-    </div>
-  </header>
 
-  <!-- ── Main layout ────────────────────────────────────── -->
-  <main>
+<!-- ═══════════════════ SIDEBAR ════════════════════════════ -->
+<aside id="sidebar">
+  <div class="sidebar-brand">
+    <span class="brand-icon">⬡</span>
+    <span class="brand-text">NEXUS <span class="brand-ai">AI</span></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a class="nav-item active" data-tab="overview"    href="#">📊 Overview</a>
+    <a class="nav-item"        data-tab="strategies"  href="#">⚡ Strategies</a>
+    <a class="nav-item"        data-tab="trades"      href="#">📋 Trades</a>
+    <a class="nav-item"        data-tab="payout"      href="#">💸 Payout</a>
+    <a class="nav-item"        data-tab="prices"      href="#">📈 Markets</a>
+    <a class="nav-item"        data-tab="settings"    href="#">⚙️ Settings</a>
+  </nav>
+  <div class="sidebar-footer">
+    <div id="sb-status" class="sb-status offline">● Offline</div>
+    <div id="sb-dry-run" class="sb-badge" style="display:none">DRY RUN</div>
+    <div id="sb-uptime" class="sb-uptime"></div>
+  </div>
+</aside>
 
-    <!-- Stats row -->
-    <section class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Total Est. Profit</div>
-        <div class="stat-value" id="total-profit">$0.00</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Successful Trades</div>
-        <div class="stat-value" id="total-trades">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Opportunities Found</div>
-        <div class="stat-value" id="total-found">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Active Chains</div>
-        <div class="stat-value" id="active-chains">0</div>
-      </div>
-    </section>
+<!-- ═══════════════════ MAIN CONTENT ═══════════════════════ -->
+<main id="main">
 
-    <!-- Two-column layout -->
-    <div class="cols">
+  <!-- ── HAMBURGER (mobile) ─────────────────────────────── -->
+  <button id="menu-toggle" onclick="toggleSidebar()">☰</button>
 
-      <!-- Left column -->
-      <div class="col">
-
-        <!-- Chain status -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-icon">🔗</span> Blockchain Connections
-          </div>
-          <div id="chain-list" class="chain-list"></div>
-        </div>
-
-        <!-- Top yield rates -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-icon">📈</span> Top Yield Rates (DeFi Llama)
-          </div>
-          <div id="yield-list" class="yield-list">
-            <div class="loading">Loading…</div>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Right column -->
-      <div class="col">
-
-        <!-- Opportunities -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-icon">🎯</span> Live Opportunities
-            <span class="scan-counter" id="scan-counter"></span>
-          </div>
-          <div id="opportunity-list" class="opp-list">
-            <div class="loading">Scanning…</div>
-          </div>
-        </div>
-
-        <!-- Recent trades -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-icon">⚡</span> Recent Trades
-          </div>
-          <div id="trade-list" class="trade-list">
-            <div class="loading">No trades yet…</div>
-          </div>
-        </div>
-
+  <!-- ══════════════ TAB: OVERVIEW ════════════════════════ -->
+  <div id="tab-overview" class="tab-content active">
+    <div class="page-header">
+      <h1>Overview</h1>
+      <div class="header-actions">
+        <button id="start-btn"  class="btn btn-green"  onclick="agentControl('start')">▶ Start Bot</button>
+        <button id="stop-btn"   class="btn btn-red"    onclick="agentControl('stop')" style="display:none">■ Stop Bot</button>
+        <button class="btn btn-dim" onclick="refreshAll()">↺ Refresh</button>
       </div>
     </div>
 
-    <!-- Config panel -->
-    <div class="card config-card">
-      <div class="card-header">
-        <span class="card-icon">⚙️</span> Active Configuration
+    <!-- KPI row -->
+    <div class="kpi-row">
+      <div class="kpi" id="kpi-profit">
+        <div class="kpi-label">Total Est. Profit</div>
+        <div class="kpi-value">$0.00</div>
+        <div class="kpi-sub">all time</div>
       </div>
-      <div id="config-panel" class="config-panel"></div>
-    </div>
-
-    <!-- Payout panel -->
-    <div class="card payout-card">
-      <div class="card-header">
-        <span class="card-icon">💸</span> Reward Payout
-        <span id="payout-mode-badge" class="badge badge--info" style="margin-left:.5rem"></span>
-        <button id="sweep-btn" class="sweep-btn" title="Force an immediate payout sweep">Sweep Now</button>
+      <div class="kpi" id="kpi-trades">
+        <div class="kpi-label">Successful Trades</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">completed</div>
       </div>
-      <div class="payout-body">
-        <div class="payout-stats">
-          <div class="pstat">
-            <div class="pstat-label">Pending</div>
-            <div class="pstat-value" id="payout-pending">$0.00</div>
-          </div>
-          <div class="pstat">
-            <div class="pstat-label">Total Paid Out</div>
-            <div class="pstat-value" id="payout-total">$0.00</div>
-          </div>
-          <div class="pstat">
-            <div class="pstat-label">Payouts Sent</div>
-            <div class="pstat-value" id="payout-count">0</div>
-          </div>
-          <div class="pstat">
-            <div class="pstat-label">Threshold</div>
-            <div class="pstat-value" id="payout-threshold">$10.00</div>
-          </div>
-        </div>
-        <div class="payout-destination" id="payout-destination"></div>
-        <div class="payout-history-header">Recent Payouts</div>
-        <div id="payout-history" class="payout-history">
-          <div class="empty">No payouts yet…</div>
-        </div>
+      <div class="kpi" id="kpi-opps">
+        <div class="kpi-label">Opportunities</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">detected</div>
+      </div>
+      <div class="kpi" id="kpi-paid">
+        <div class="kpi-label">Paid Out</div>
+        <div class="kpi-value">$0.00</div>
+        <div class="kpi-sub">to your wallet</div>
+      </div>
+      <div class="kpi" id="kpi-flashbots">
+        <div class="kpi-label">Flashbots</div>
+        <div class="kpi-value">–</div>
+        <div class="kpi-sub">MEV protection</div>
+      </div>
+      <div class="kpi" id="kpi-scan">
+        <div class="kpi-label">Scan #</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">block-triggered</div>
       </div>
     </div>
 
-  </main>
+    <!-- Two column: chains + live opps -->
+    <div class="two-col">
 
-  <footer>
-    <span>Nexus AI Crypto Farmer &nbsp;|&nbsp; All trades subject to market conditions &nbsp;|&nbsp; Use at your own risk</span>
-  </footer>
+      <!-- Chain status -->
+      <div class="card">
+        <div class="card-head">🔗 Blockchain Connections</div>
+        <div id="chain-list" class="chain-list"></div>
+      </div>
 
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+      <!-- Live opportunity ticker -->
+      <div class="card">
+        <div class="card-head">
+          🎯 Live Opportunities
+          <span id="opp-scan-label" class="head-sub"></span>
+        </div>
+        <div id="opp-ticker" class="opp-ticker"></div>
+      </div>
+    </div>
+
+    <!-- Profit chart -->
+    <div class="card">
+      <div class="card-head">📊 Profit Over Time</div>
+      <div class="chart-wrap"><canvas id="profit-chart"></canvas></div>
+    </div>
+
+    <!-- Recent trades mini -->
+    <div class="card">
+      <div class="card-head">⚡ Recent Trades</div>
+      <div id="recent-trades-mini" class="trade-table-wrap">
+        <table class="trade-table">
+          <thead><tr><th>Type</th><th>Description</th><th>Chain</th><th>Est. Profit</th><th>Status</th><th>Tx</th></tr></thead>
+          <tbody id="recent-trades-mini-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: STRATEGIES ══════════════════════ -->
+  <div id="tab-strategies" class="tab-content">
+    <div class="page-header"><h1>Strategies</h1></div>
+
+    <div class="strategy-grid" id="strategy-cards"></div>
+
+    <!-- Strategy breakdown chart -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">🥧 Trades by Strategy</div>
+        <div class="chart-wrap chart-sm"><canvas id="strategy-pie"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head">🔥 Top Opportunities (All Time)</div>
+        <div id="top-opps" class="opp-ticker"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: TRADES ═══════════════════════════ -->
+  <div id="tab-trades" class="tab-content">
+    <div class="page-header">
+      <h1>Trade History</h1>
+      <div class="filter-row">
+        <select id="trade-filter-chain" onchange="filterTrades()">
+          <option value="">All Chains</option>
+          <option value="ethereum">Ethereum</option>
+          <option value="bsc">BSC</option>
+          <option value="polygon">Polygon</option>
+        </select>
+        <select id="trade-filter-type" onchange="filterTrades()">
+          <option value="">All Types</option>
+          <option value="arbitrage">Arbitrage</option>
+          <option value="yield_farming">Yield</option>
+          <option value="liquidity_mining">Liquidity</option>
+        </select>
+      </div>
+    </div>
+    <div class="card no-pad">
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Time</th><th>Type</th><th>Chain</th>
+          <th>Description</th><th>Est. Profit</th>
+          <th>Mode</th><th>Status</th><th>Tx Hash</th>
+        </tr></thead>
+        <tbody id="trades-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: PAYOUT ═══════════════════════════ -->
+  <div id="tab-payout" class="tab-content">
+    <div class="page-header">
+      <h1>Reward Payout</h1>
+      <div class="header-actions">
+        <button class="btn btn-green" onclick="sweepNow()">💸 Sweep Now</button>
+      </div>
+    </div>
+
+    <!-- Payout KPIs -->
+    <div class="kpi-row kpi-row-4">
+      <div class="kpi" id="pkpi-pending">
+        <div class="kpi-label">Pending Balance</div>
+        <div class="kpi-value accent2">$0.00</div>
+        <div class="kpi-sub">accumulating</div>
+      </div>
+      <div class="kpi" id="pkpi-total">
+        <div class="kpi-label">Total Paid Out</div>
+        <div class="kpi-value green">$0.00</div>
+        <div class="kpi-sub">all time</div>
+      </div>
+      <div class="kpi" id="pkpi-count">
+        <div class="kpi-label">Payouts Sent</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">transactions</div>
+      </div>
+      <div class="kpi" id="pkpi-threshold">
+        <div class="kpi-label">Trigger At</div>
+        <div class="kpi-value">$10.00</div>
+        <div class="kpi-sub">threshold</div>
+      </div>
+    </div>
+
+    <!-- Destination cards -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">🎯 Payout Destination</div>
+        <div id="payout-destination-panel" class="dest-panel"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">⚡ Payout Progress</div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>Pending</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="progress-bar" class="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-hint" id="progress-hint">Set PAYOUT_THRESHOLD_USD in settings</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payout history -->
+    <div class="card no-pad">
+      <div class="card-head" style="padding:1rem 1.2rem">📋 Payout History</div>
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Time</th><th>Amount</th><th>Method</th>
+          <th>Destination</th><th>Tx / Ref</th><th>Status</th>
+        </tr></thead>
+        <tbody id="payout-history-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: MARKETS ══════════════════════════ -->
+  <div id="tab-prices" class="tab-content">
+    <div class="page-header"><h1>Market Prices & Yields</h1></div>
+
+    <!-- Token prices -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">💰 Token Prices (USD)</div>
+        <div id="price-grid" class="price-grid"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">📈 Price Chart</div>
+        <div class="chart-wrap chart-sm"><canvas id="price-chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Top yields -->
+    <div class="card no-pad">
+      <div class="card-head" style="padding:1rem 1.2rem">
+        🌾 Top DeFi Yield Rates
+        <span class="head-sub">via DeFi Llama</span>
+      </div>
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Protocol</th><th>Pool</th><th>Chain</th>
+          <th>Base APY</th><th>Reward APY</th><th>Total APY</th><th>TVL</th>
+        </tr></thead>
+        <tbody id="yield-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: SETTINGS ═════════════════════════ -->
+  <div id="tab-settings" class="tab-content">
+    <div class="page-header"><h1>Settings & Configuration</h1></div>
+
+    <div class="settings-hint">
+      <span>⚠️</span>
+      Settings are configured via environment variables on Render.
+      Changes here show current values only. Edit in your Render dashboard or <code>.env</code> file.
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">🤖 Bot Settings</div>
+        <div id="settings-bot" class="settings-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">💸 Payout Settings</div>
+        <div id="settings-payout" class="settings-list"></div>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">⚡ Strategies</div>
+        <div id="settings-strategies" class="settings-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">🔗 Chains</div>
+        <div id="settings-chains" class="settings-list"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════════════════ TOAST ALERTS ════════════════════════ -->
+<div id="toast-container"></div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>

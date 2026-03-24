@@ -92,6 +92,17 @@ class Config:
     STRATEGY_ARBITRAGE: bool = _bool("STRATEGY_ARBITRAGE", True)
     STRATEGY_YIELD_FARMING: bool = _bool("STRATEGY_YIELD_FARMING", True)
     STRATEGY_LIQUIDITY_MINING: bool = _bool("STRATEGY_LIQUIDITY_MINING", True)
+    STRATEGY_LIQUIDATION: bool = _bool("STRATEGY_LIQUIDATION", True)
+
+    # ── Speed / MEV settings ──────────────────────────────────
+
+    # Flashbots: dedicated signing key (NOT your trading wallet key)
+    FLASHBOTS_SIGNING_KEY: str = os.getenv("FLASHBOTS_SIGNING_KEY", "")
+    # bloXroute: auth header for ultra-fast bundle propagation
+    BLOXROUTE_AUTH_HEADER: str = os.getenv("BLOXROUTE_AUTH_HEADER", "")
+    # Deployed FlashArbitrage contract address (per chain, comma-sep: eth:0x...,polygon:0x...)
+    FLASH_CONTRACT_ETH: str = os.getenv("FLASH_CONTRACT_ETH", "")
+    FLASH_CONTRACT_POLYGON: str = os.getenv("FLASH_CONTRACT_POLYGON", "")
 
     # Enabled chains
     CHAIN_ETH: bool = _bool("CHAIN_ETH", True)

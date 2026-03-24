@@ -16,6 +16,8 @@ from nexus.monitor import OpportunityMonitor
 from nexus.executor import TransactionExecutor
 from nexus.rewards import RewardTracker
 from nexus.payout import get_payout_manager, PayoutManager
+from nexus.feeds.price_feed import get_price_feed, PriceFeed
+from nexus.execution.bundle_submitter import get_bundle_submitter
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -39,6 +41,8 @@ class NexusAgent:
         self.executor: TransactionExecutor = TransactionExecutor(self.blockchain)
         self.tracker: RewardTracker = RewardTracker()
         self.payout: PayoutManager = get_payout_manager(self.blockchain)
+        self.feed: PriceFeed = get_price_feed()
+        self.bundler = get_bundle_submitter()
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
@@ -56,7 +60,8 @@ class NexusAgent:
         )
         self._running = True
         self._start_time = time.time()
-        self.monitor.start()
+        self.feed.start()           # Start real-time price feed
+        self.monitor.start()        # Start block-triggered opportunity scanner
         self._exec_thread = threading.Thread(target=self._execution_loop, daemon=True)
         self._exec_thread.start()
         logger.info("Nexus AI is running.")
@@ -64,7 +69,9 @@ class NexusAgent:
     def stop(self):
         logger.info("Stopping Nexus AI…")
         self._running = False
+        self.feed.stop()
         self.monitor.stop()
+        self.blockchain.stop()
         if self._exec_thread:
             self._exec_thread.join(timeout=10)
         logger.info("Nexus AI stopped.")
@@ -121,6 +128,8 @@ class NexusAgent:
             "monitor": self.monitor.status(),
             "rewards": self.tracker.get_stats(),
             "payout": self.payout.status(),
+            "prices": self.feed.all_prices(),
+            "flashbots_ready": self.bundler.is_available(),
         }
 
     def get_opportunities(self, limit: int = 20) -> list:
