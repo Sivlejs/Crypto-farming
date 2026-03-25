@@ -132,6 +132,8 @@ _ENABLED_MAP = {
 
 # Block poll interval when WebSocket is not available
 BLOCK_POLL_SECONDS = 3
+# Interval between reconnection attempts for failed chains
+RECONNECT_INTERVAL_SECONDS = 30
 
 
 class BlockchainManager:
@@ -258,7 +260,6 @@ class BlockchainManager:
 
     def _block_poll_loop(self):
         """Background block poller with automatic reconnection for failed chains."""
-        reconnect_interval = 30  # Seconds between reconnection attempts
         last_reconnect_attempt = 0
         
         while self._running:
@@ -290,7 +291,7 @@ class BlockchainManager:
                         logger.debug("Reconnection failed for %s: %s", chain, reconn_exc)
 
             # Periodically try to reconnect failed chains
-            if now - last_reconnect_attempt > reconnect_interval:
+            if now - last_reconnect_attempt > RECONNECT_INTERVAL_SECONDS:
                 last_reconnect_attempt = now
                 self._retry_failed_chains()
 

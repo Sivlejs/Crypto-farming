@@ -256,7 +256,12 @@ class SettingsManager:
             return
 
         try:
-            self._redis = redis.from_url(redis_url, decode_responses=True)
+            self._redis = redis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_timeout=5,
+                socket_connect_timeout=5,
+            )
             self._redis.ping()
             logger.info("SettingsManager connected to Redis")
         except Exception as exc:
@@ -408,7 +413,7 @@ class SettingsManager:
 
                 # Mask sensitive values unless explicitly requested
                 if is_sensitive and not include_sensitive and value:
-                    display_value = "••••••••" if len(str(value)) > 0 else ""
+                    display_value = "••••••••"
                 else:
                     display_value = value
 

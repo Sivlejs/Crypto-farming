@@ -39,6 +39,7 @@ def main():
 
     # Try to initialize agent with retries
     agent = None
+    last_error = None
     for attempt in range(1, MAX_INIT_RETRIES + 1):
         try:
             from nexus.agent import get_agent
@@ -46,6 +47,7 @@ def main():
             logger.info("Agent initialized successfully on attempt %d", attempt)
             break
         except Exception as exc:
+            last_error = exc
             logger.warning(
                 "Agent initialization attempt %d/%d failed: %s",
                 attempt, MAX_INIT_RETRIES, exc
@@ -58,16 +60,9 @@ def main():
                     "All initialization attempts failed. Last error:\n%s",
                     traceback.format_exc()
                 )
-                # Don't crash - try to start anyway with a fresh attempt
-                try:
-                    from nexus.agent import get_agent
-                    agent = get_agent()
-                except Exception:
-                    logger.error("Final fallback initialization failed")
-                    raise
 
     if agent is None:
-        logger.error("Failed to initialize agent after all retries")
+        logger.error("Failed to initialize agent after all retries: %s", last_error)
         sys.exit(1)
 
     # ── Graceful shutdown ─────────────────────────────────────

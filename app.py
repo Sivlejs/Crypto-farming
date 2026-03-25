@@ -38,16 +38,16 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 _agent_started = False
 _agent_lock = threading.Lock()
 _agent_start_thread: threading.Thread | None = None
-_agent_init_attempts = 0
 _MAX_AGENT_INIT_ATTEMPTS = 3
 
 
 def _start_agent_once():
     """Initialize and start the agent with retry logic."""
-    global _agent_started, _agent_init_attempts
+    global _agent_started
     
-    while _agent_init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
-        _agent_init_attempts += 1
+    init_attempts = 0
+    while init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
+        init_attempts += 1
         try:
             agent = get_agent()
             agent.start()
@@ -62,9 +62,9 @@ def _start_agent_once():
         except Exception as exc:
             logger.warning(
                 "Agent start attempt %d/%d failed: %s",
-                _agent_init_attempts, _MAX_AGENT_INIT_ATTEMPTS, exc
+                init_attempts, _MAX_AGENT_INIT_ATTEMPTS, exc
             )
-            if _agent_init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
+            if init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
                 time.sleep(5)  # Wait before retry
     
     # After all retries, mark as started anyway to prevent infinite attempts
