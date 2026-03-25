@@ -202,6 +202,15 @@ MAX_GAS_GWEI = 100
 MIN_PROFIT_TO_COMPOUND_USD = 5.0
 AUTO_COMPOUND_INTERVAL_HOURS = 24
 
+# Safety margin for Curve add_liquidity to account for pool state changes
+CURVE_SAFETY_MARGIN_FACTOR = 0.98  # 2% extra safety margin beyond slippage
+
+# Token symbol to common asset name mapping for price lookup
+TOKEN_SYMBOL_ALIASES = {
+    "AUSDC": "USDC", "AUSDT": "USDT", "ADAI": "DAI", "AWETH": "ETH",
+    "WETH": "ETH", "WBTC": "BTC", "WMATIC": "MATIC", "WBNB": "BNB",
+}
+
 
 class ExecutionStatus(Enum):
     """Status of a pool execution."""
@@ -637,11 +646,145 @@ class PoolExecutor:
         pool: PoolData,
         amount_usd: float,
     ) -> Optional[str]:
-        """Execute Aave supply transaction."""
-        # This would be implemented with actual Aave contract calls
-        # For now, return simulation result
-        logger.info("Aave supply: $%.2f to %s", amount_usd, pool.symbol)
-        return "0x" + "aave_" + str(int(time.time()))[-8:] + "0" * 50
+        """Execute Aave supply transaction with real blockchain interaction."""
+        from eth_account import Account
+        from nexus.protocols.aave import AAVE_POOL_ABI, AAVE_POOL_ADDRESSES
+        from nexus.protocols.uniswap import ERC20_ABI, DEX_ADDRESSES
+        from nexus.protocols.dex_aggregator import PriceAggregator
+        
+        logger.info("Aave supply: $%.2f to %s on %s", amount_usd, pool.symbol, pool.chain)
+        
+        try:
+            # Get account from config
+            if not Config.WALLET_PRIVATE_KEY or not Config.WALLET_ADDRESS:
+                logger.error("Wallet not configured for Aave supply")
+                return None
+            
+            account = Account.from_key(Config.WALLET_PRIVATE_KEY)
+            
+            # Get Aave pool address for chain
+            aave_pool_addr = AAVE_POOL_ADDRESSES.get(pool.chain)
+            if not aave_pool_addr:
+                logger.error("No Aave pool address for chain %s", pool.chain)
+                return None
+            
+            # Determine asset to supply based on pool symbol
+            # Parse the symbol to find the underlying asset (e.g., "USDC" from pool symbol)
+            symbol_lower = pool.symbol.lower()
+            dex_addrs = DEX_ADDRESSES.get(pool.chain, {})
+            
+            # Try to match common stablecoins/tokens
+            asset_address = None
+            if "usdc" in symbol_lower:
+                asset_address = dex_addrs.get("usdc")
+            elif "usdt" in symbol_lower:
+                asset_address = dex_addrs.get("usdt")
+            elif "dai" in symbol_lower:
+                asset_address = dex_addrs.get("dai")
+            elif "weth" in symbol_lower or "eth" in symbol_lower:
+                asset_address = dex_addrs.get("weth")
+            
+            if not asset_address:
+                # Fallback to USDC as default supply asset
+                asset_address = dex_addrs.get("usdc")
+                if not asset_address:
+                    logger.error("No suitable asset address found for %s on %s", pool.symbol, pool.chain)
+                    return None
+            
+            # Get token contract for balance/approval
+            token_contract = w3.eth.contract(
+                address=Web3.to_checksum_address(asset_address),
+                abi=ERC20_ABI
+            )
+            
+            # Get decimals and calculate amount
+            decimals = token_contract.functions.decimals().call()
+            
+            # Determine token symbol for price lookup with robust fallback
+            # Handle various symbol formats: "USDC", "aUSDC", "ETH-USDC", "WETH/USDC"
+            raw_symbol = pool.symbol.replace("/", "-").split("-")[0].strip().upper() if "-" in pool.symbol or "/" in pool.symbol else pool.symbol.strip().upper()
+            token_symbol = TOKEN_SYMBOL_ALIASES.get(raw_symbol, raw_symbol)
+            
+            # Fallback based on asset address if symbol parsing fails
+            if "usdc" in asset_address.lower():
+                token_symbol = "USDC"
+            elif "usdt" in asset_address.lower():
+                token_symbol = "USDT"
+            elif "dai" in asset_address.lower():
+                token_symbol = "DAI"
+            
+            token_price = PriceAggregator.get_price(token_symbol) or 1.0  # Default to 1.0 for stablecoins
+            amount_tokens = amount_usd / token_price
+            amount_wei = int(amount_tokens * (10 ** decimals))
+            
+            # Check balance
+            balance = token_contract.functions.balanceOf(account.address).call()
+            if balance < amount_wei:
+                logger.error(
+                    "Insufficient %s balance: have %s, need %s",
+                    token_symbol, balance / (10 ** decimals), amount_tokens
+                )
+                return None
+            
+            nonce = w3.eth.get_transaction_count(account.address)
+            gas_price = w3.eth.gas_price
+            
+            # Check and approve if needed
+            aave_pool_checksum = Web3.to_checksum_address(aave_pool_addr)
+            allowance = token_contract.functions.allowance(account.address, aave_pool_checksum).call()
+            
+            if allowance < amount_wei:
+                logger.info("Approving %s for Aave pool...", token_symbol)
+                approve_tx = token_contract.functions.approve(
+                    aave_pool_checksum,
+                    2**256 - 1  # Max approval
+                ).build_transaction({
+                    "from": account.address,
+                    "nonce": nonce,
+                    "gasPrice": gas_price,
+                    "gas": 60000,
+                })
+                signed_approve = account.sign_transaction(approve_tx)
+                approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                nonce += 1
+                logger.info("Approval confirmed: %s", approve_hash.hex())
+            
+            # Build Aave supply transaction
+            aave_pool = w3.eth.contract(
+                address=aave_pool_checksum,
+                abi=AAVE_POOL_ABI
+            )
+            
+            supply_tx = aave_pool.functions.supply(
+                Web3.to_checksum_address(asset_address),
+                amount_wei,
+                account.address,
+                0  # referral code
+            ).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": 250000,
+            })
+            
+            # Sign and send
+            signed_tx = account.sign_transaction(supply_tx)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            # Wait for confirmation
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                logger.info("Aave supply successful: %s", tx_hash.hex())
+                return tx_hash.hex()
+            else:
+                logger.error("Aave supply transaction failed: %s", tx_hash.hex())
+                return None
+                
+        except Exception as exc:
+            logger.error("Aave supply execution error: %s", exc)
+            return None
 
     def _execute_curve_add_liquidity(
         self,
@@ -651,9 +794,120 @@ class PoolExecutor:
         amount_usd: float,
         max_slippage_bps: int,
     ) -> Optional[str]:
-        """Execute Curve add_liquidity transaction."""
-        logger.info("Curve add_liquidity: $%.2f to %s", amount_usd, pool.symbol)
-        return "0x" + "curve_" + str(int(time.time()))[-8:] + "0" * 49
+        """Execute Curve add_liquidity transaction with real blockchain interaction."""
+        from eth_account import Account
+        from nexus.protocols.uniswap import ERC20_ABI, DEX_ADDRESSES
+        from nexus.protocols.dex_aggregator import PriceAggregator
+        
+        logger.info("Curve add_liquidity: $%.2f to %s on %s", amount_usd, pool.symbol, pool.chain)
+        
+        try:
+            # Get account from config
+            if not Config.WALLET_PRIVATE_KEY or not Config.WALLET_ADDRESS:
+                logger.error("Wallet not configured for Curve liquidity")
+                return None
+            
+            account = Account.from_key(Config.WALLET_PRIVATE_KEY)
+            dex_addrs = DEX_ADDRESSES.get(pool.chain, {})
+            
+            # For Curve stableswap pools, we typically add single-sided liquidity with a stablecoin
+            # Use USDC as the primary deposit token
+            asset_address = dex_addrs.get("usdc") or dex_addrs.get("usdt") or dex_addrs.get("dai")
+            if not asset_address:
+                logger.error("No stablecoin address found for chain %s", pool.chain)
+                return None
+            
+            # Get token contract
+            token_contract = w3.eth.contract(
+                address=Web3.to_checksum_address(asset_address),
+                abi=ERC20_ABI
+            )
+            
+            decimals = token_contract.functions.decimals().call()
+            amount_wei = int(amount_usd * (10 ** decimals))  # Stablecoins are ~$1
+            
+            # Check balance
+            balance = token_contract.functions.balanceOf(account.address).call()
+            if balance < amount_wei:
+                logger.error(
+                    "Insufficient stablecoin balance: have %s, need %s",
+                    balance / (10 ** decimals), amount_usd
+                )
+                return None
+            
+            nonce = w3.eth.get_transaction_count(account.address)
+            gas_price = w3.eth.gas_price
+            
+            # Approve Curve pool if needed
+            pool_checksum = Web3.to_checksum_address(pool_address)
+            allowance = token_contract.functions.allowance(account.address, pool_checksum).call()
+            
+            if allowance < amount_wei:
+                logger.info("Approving stablecoin for Curve pool...")
+                approve_tx = token_contract.functions.approve(
+                    pool_checksum,
+                    2**256 - 1
+                ).build_transaction({
+                    "from": account.address,
+                    "nonce": nonce,
+                    "gasPrice": gas_price,
+                    "gas": 60000,
+                })
+                signed_approve = account.sign_transaction(approve_tx)
+                approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+                w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                nonce += 1
+                logger.info("Approval confirmed: %s", approve_hash.hex())
+            
+            # Build Curve add_liquidity transaction
+            # Curve pools can have 2-4+ coins, we add to the first position (usually a stablecoin)
+            curve_pool = w3.eth.contract(
+                address=pool_checksum,
+                abi=CURVE_POOL_ABI
+            )
+            
+            # Apply slippage tolerance with safety margin
+            slippage_factor = (10000 - max_slippage_bps) / 10000
+            min_mint_amount = int(amount_wei * slippage_factor * CURVE_SAFETY_MARGIN_FACTOR)
+            
+            # Determine pool coin count from symbol (e.g., "DAI-USDC-USDT" = 3 coins)
+            # Default to 3 for most Curve stableswap pools, but handle 2-coin pools too
+            symbol_parts = pool.symbol.replace("/", "-").split("-")
+            num_coins = max(len(symbol_parts), 2)  # Minimum 2 coins
+            num_coins = min(num_coins, 4)  # Cap at 4 for safety
+            
+            # Build amounts array: add to first coin only, zeros for others
+            amounts = [amount_wei] + [0] * (num_coins - 1)
+            
+            logger.debug("Curve add_liquidity: %d coins, amounts=%s", num_coins, amounts)
+            
+            add_liq_tx = curve_pool.functions.add_liquidity(
+                amounts,
+                min_mint_amount
+            ).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": 350000,  # Curve pools use more gas
+            })
+            
+            # Sign and send
+            signed_tx = account.sign_transaction(add_liq_tx)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            # Wait for confirmation
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                logger.info("Curve add_liquidity successful: %s", tx_hash.hex())
+                return tx_hash.hex()
+            else:
+                logger.error("Curve add_liquidity transaction failed: %s", tx_hash.hex())
+                return None
+                
+        except Exception as exc:
+            logger.error("Curve add_liquidity execution error: %s", exc)
+            return None
 
     def _execute_amm_add_liquidity(
         self,
@@ -663,9 +917,173 @@ class PoolExecutor:
         amount_usd: float,
         max_slippage_bps: int,
     ) -> Optional[str]:
-        """Execute AMM (Uniswap-style) addLiquidity transaction."""
-        logger.info("AMM addLiquidity: $%.2f to %s", amount_usd, pool.symbol)
-        return "0x" + "amm_" + str(int(time.time()))[-8:] + "0" * 51
+        """Execute AMM (Uniswap-style) addLiquidity transaction with real blockchain interaction."""
+        from eth_account import Account
+        from nexus.protocols.uniswap import ERC20_ABI, DEX_ADDRESSES, UNISWAP_V2_ROUTER_ABI
+        from nexus.protocols.dex_aggregator import PriceAggregator
+        
+        logger.info("AMM addLiquidity: $%.2f to %s on %s", amount_usd, pool.symbol, pool.chain)
+        
+        try:
+            # Get account from config
+            if not Config.WALLET_PRIVATE_KEY or not Config.WALLET_ADDRESS:
+                logger.error("Wallet not configured for AMM liquidity")
+                return None
+            
+            account = Account.from_key(Config.WALLET_PRIVATE_KEY)
+            dex_addrs = DEX_ADDRESSES.get(pool.chain, {})
+            
+            # Parse pool symbol to get token pair (e.g., "ETH-USDC" -> ["ETH", "USDC"])
+            symbols = [s.strip().upper() for s in pool.symbol.replace("/", "-").split("-")]
+            if len(symbols) < 2:
+                logger.error("Cannot parse token pair from symbol: %s", pool.symbol)
+                return None
+            
+            token_a_symbol = symbols[0]
+            token_b_symbol = symbols[1]
+            
+            # Map symbols to addresses
+            token_map = {
+                "WETH": dex_addrs.get("weth"),
+                "ETH": dex_addrs.get("weth"),
+                "USDC": dex_addrs.get("usdc"),
+                "USDT": dex_addrs.get("usdt"),
+                "DAI": dex_addrs.get("dai"),
+                "WBNB": dex_addrs.get("wbnb"),
+                "BNB": dex_addrs.get("wbnb"),
+                "BUSD": dex_addrs.get("busd"),
+                "WMATIC": dex_addrs.get("wmatic"),
+                "MATIC": dex_addrs.get("wmatic"),
+            }
+            
+            token_a_addr = token_map.get(token_a_symbol)
+            token_b_addr = token_map.get(token_b_symbol)
+            
+            if not token_a_addr or not token_b_addr:
+                logger.error(
+                    "Cannot find token addresses for %s/%s on %s",
+                    token_a_symbol, token_b_symbol, pool.chain
+                )
+                return None
+            
+            # Get token contracts
+            token_a = w3.eth.contract(
+                address=Web3.to_checksum_address(token_a_addr),
+                abi=ERC20_ABI
+            )
+            token_b = w3.eth.contract(
+                address=Web3.to_checksum_address(token_b_addr),
+                abi=ERC20_ABI
+            )
+            
+            decimals_a = token_a.functions.decimals().call()
+            decimals_b = token_b.functions.decimals().call()
+            
+            # Get prices to calculate token amounts
+            price_a = PriceAggregator.get_price(token_a_symbol) or 1.0
+            price_b = PriceAggregator.get_price(token_b_symbol) or 1.0
+            
+            # Split amount 50/50 between tokens
+            amount_a_usd = amount_usd / 2
+            amount_b_usd = amount_usd / 2
+            
+            amount_a_tokens = amount_a_usd / price_a
+            amount_b_tokens = amount_b_usd / price_b
+            
+            amount_a_wei = int(amount_a_tokens * (10 ** decimals_a))
+            amount_b_wei = int(amount_b_tokens * (10 ** decimals_b))
+            
+            # Check balances
+            balance_a = token_a.functions.balanceOf(account.address).call()
+            balance_b = token_b.functions.balanceOf(account.address).call()
+            
+            if balance_a < amount_a_wei:
+                logger.error(
+                    "Insufficient %s balance: have %s, need %s",
+                    token_a_symbol, balance_a / (10 ** decimals_a), amount_a_tokens
+                )
+                return None
+            
+            if balance_b < amount_b_wei:
+                logger.error(
+                    "Insufficient %s balance: have %s, need %s",
+                    token_b_symbol, balance_b / (10 ** decimals_b), amount_b_tokens
+                )
+                return None
+            
+            nonce = w3.eth.get_transaction_count(account.address)
+            gas_price = w3.eth.gas_price
+            router_checksum = Web3.to_checksum_address(router_address)
+            
+            # Approve both tokens if needed
+            for token_contract, amount_wei, symbol in [
+                (token_a, amount_a_wei, token_a_symbol),
+                (token_b, amount_b_wei, token_b_symbol)
+            ]:
+                allowance = token_contract.functions.allowance(account.address, router_checksum).call()
+                if allowance < amount_wei:
+                    logger.info("Approving %s for router...", symbol)
+                    approve_tx = token_contract.functions.approve(
+                        router_checksum,
+                        2**256 - 1
+                    ).build_transaction({
+                        "from": account.address,
+                        "nonce": nonce,
+                        "gasPrice": gas_price,
+                        "gas": 60000,
+                    })
+                    signed_approve = account.sign_transaction(approve_tx)
+                    approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+                    w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    nonce += 1
+                    logger.info("Approval confirmed: %s", approve_hash.hex())
+            
+            # Calculate minimum amounts with slippage
+            slippage_factor = (10000 - max_slippage_bps) / 10000
+            min_a = int(amount_a_wei * slippage_factor)
+            min_b = int(amount_b_wei * slippage_factor)
+            
+            deadline = int(time.time()) + DEFAULT_DEADLINE_SECONDS
+            
+            # Build addLiquidity transaction
+            router = w3.eth.contract(
+                address=router_checksum,
+                abi=UNISWAP_V2_ROUTER_ABI
+            )
+            
+            add_liq_tx = router.functions.addLiquidity(
+                Web3.to_checksum_address(token_a_addr),
+                Web3.to_checksum_address(token_b_addr),
+                amount_a_wei,
+                amount_b_wei,
+                min_a,
+                min_b,
+                account.address,
+                deadline
+            ).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": 300000,
+            })
+            
+            # Sign and send
+            signed_tx = account.sign_transaction(add_liq_tx)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            # Wait for confirmation
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                logger.info("AMM addLiquidity successful: %s", tx_hash.hex())
+                return tx_hash.hex()
+            else:
+                logger.error("AMM addLiquidity transaction failed: %s", tx_hash.hex())
+                return None
+                
+        except Exception as exc:
+            logger.error("AMM addLiquidity execution error: %s", exc)
+            return None
 
     # ── Pool Exit ─────────────────────────────────────────────
 

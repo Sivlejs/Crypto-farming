@@ -83,10 +83,14 @@ AAVE_POOL_ABI = [
     },
 ]
 
-# Aave V3 pool addresses per chain
+# Aave V3 pool addresses per chain (verified from Aave V3 docs)
 AAVE_POOL_ADDRESSES: dict[str, str] = {
     "ethereum": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
     "polygon": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "arbitrum": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",  # Aave V3 on Arbitrum
+    "optimism": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",  # Aave V3 on Optimism
+    "avalanche": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",  # Aave V3 on Avalanche
+    "base": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",  # Aave V3 on Base
 }
 
 # Ray = 10^27 (Aave's precision for rates)
