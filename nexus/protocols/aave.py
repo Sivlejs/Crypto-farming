@@ -87,6 +87,10 @@ AAVE_POOL_ABI = [
 AAVE_POOL_ADDRESSES: dict[str, str] = {
     "ethereum": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
     "polygon": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "arbitrum": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "optimism": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "avalanche": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+    "base": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
 }
 
 # Ray = 10^27 (Aave's precision for rates)
