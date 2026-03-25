@@ -19,6 +19,7 @@
   <nav class="sidebar-nav">
     <a class="nav-item active" data-tab="overview"    href="#">📊 Overview</a>
     <a class="nav-item"        data-tab="strategies"  href="#">⚡ Strategies</a>
+    <a class="nav-item"        data-tab="pools"       href="#">🏊 Pool Analysis</a>
     <a class="nav-item"        data-tab="trades"      href="#">📋 Trades</a>
     <a class="nav-item"        data-tab="payout"      href="#">💸 Payout</a>
     <a class="nav-item"        data-tab="prices"      href="#">📈 Markets</a>
@@ -137,6 +138,130 @@
         <div class="card-head">🔥 Top Opportunities (All Time)</div>
         <div id="top-opps" class="opp-ticker"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: POOL ANALYSIS ═══════════════════════ -->
+  <div id="tab-pools" class="tab-content">
+    <div class="page-header">
+      <h1>🏊 Pool Analysis & Optimization</h1>
+      <div class="header-actions">
+        <button class="btn btn-accent" onclick="loadPoolAnalysis()">↺ Refresh</button>
+        <button class="btn btn-green" onclick="showAllocationModal()">💰 Get Allocation</button>
+      </div>
+    </div>
+
+    <!-- Pool KPIs -->
+    <div class="kpi-row kpi-row-4">
+      <div class="kpi" id="pool-kpi-analyzed">
+        <div class="kpi-label">Pools Analyzed</div>
+        <div class="kpi-value">0</div>
+        <div class="kpi-sub">across all chains</div>
+      </div>
+      <div class="kpi" id="pool-kpi-top-apy">
+        <div class="kpi-label">Top Pool APY</div>
+        <div class="kpi-value green">0%</div>
+        <div class="kpi-sub">best opportunity</div>
+      </div>
+      <div class="kpi" id="pool-kpi-positions">
+        <div class="kpi-label">Active Positions</div>
+        <div class="kpi-value accent2">0</div>
+        <div class="kpi-sub">current allocations</div>
+      </div>
+      <div class="kpi" id="pool-kpi-exposure">
+        <div class="kpi-label">Total Exposure</div>
+        <div class="kpi-value">$0.00</div>
+        <div class="kpi-sub">across pools</div>
+      </div>
+    </div>
+
+    <!-- Pool Filters -->
+    <div class="card">
+      <div class="card-head">🔍 Pool Filters</div>
+      <div class="filter-row" style="padding: 1rem">
+        <select id="pool-filter-chain" onchange="filterPools()">
+          <option value="">All Chains</option>
+          <option value="ethereum">Ethereum</option>
+          <option value="arbitrum">Arbitrum</option>
+          <option value="optimism">Optimism</option>
+          <option value="base">Base</option>
+          <option value="polygon">Polygon</option>
+          <option value="bsc">BSC</option>
+          <option value="avalanche">Avalanche</option>
+        </select>
+        <select id="pool-filter-risk" onchange="filterPools()">
+          <option value="0.8">Max Risk: Medium-High</option>
+          <option value="0.5">Max Risk: Medium</option>
+          <option value="0.3">Max Risk: Low</option>
+        </select>
+        <select id="pool-filter-type" onchange="filterPools()">
+          <option value="">All Types</option>
+          <option value="stablecoins">Stablecoins Only</option>
+        </select>
+        <input type="number" id="pool-filter-min-tvl" placeholder="Min TVL ($)" value="500000" onchange="filterPools()" style="width: 150px" />
+      </div>
+    </div>
+
+    <!-- Top Pools Table -->
+    <div class="card no-pad">
+      <div class="card-head" style="padding:1rem 1.2rem">
+        🏆 Top Farming Pools
+        <span class="head-sub" id="pool-table-count">Loading...</span>
+      </div>
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Rank</th>
+          <th>Pool</th>
+          <th>Protocol</th>
+          <th>Chain</th>
+          <th>APY</th>
+          <th>TVL</th>
+          <th>Risk</th>
+          <th>Score</th>
+          <th>Actions</th>
+        </tr></thead>
+        <tbody id="pool-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- AI Decision Transparency -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">🧠 AI Decision Log</div>
+        <div id="pool-ai-decisions" class="opp-ticker" style="max-height: 400px; overflow-y: auto;"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">📊 Pool Performance Metrics</div>
+        <div id="pool-metrics-panel" class="settings-list"></div>
+      </div>
+    </div>
+
+    <!-- Current Positions -->
+    <div class="card no-pad">
+      <div class="card-head" style="padding:1rem 1.2rem">
+        💼 Current Positions
+        <span class="head-sub" id="positions-pnl">Total PnL: $0.00</span>
+      </div>
+      <table class="trade-table full">
+        <thead><tr>
+          <th>Pool</th>
+          <th>Protocol</th>
+          <th>Chain</th>
+          <th>Entry Value</th>
+          <th>Current Value</th>
+          <th>Entry APY</th>
+          <th>Current APY</th>
+          <th>PnL</th>
+          <th>Duration</th>
+        </tr></thead>
+        <tbody id="positions-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Allocation Recommendation -->
+    <div class="card" id="allocation-recommendation" style="display: none;">
+      <div class="card-head">💡 AI Allocation Recommendation</div>
+      <div id="allocation-content" class="settings-list"></div>
     </div>
   </div>
 

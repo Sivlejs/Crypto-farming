@@ -535,6 +535,245 @@ def api_settings_payout():
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Pool Analysis API (Advanced AI Infrastructure) ────────────
+
+@app.route("/api/pools")
+def api_pools():
+    """
+    Get analyzed farming pools with AI-powered metrics.
+    
+    Query parameters:
+        chain (str): Filter by chain (e.g., "ethereum")
+        limit (int): Max pools to return (default: 20)
+        min_tvl (float): Minimum TVL in USD (default: 500000)
+        max_risk (float): Maximum risk score 0-1 (default: 0.8)
+        stablecoins_only (bool): Only stablecoin pools (default: false)
+    """
+    try:
+        from nexus.learning.pool_analyzer import get_pool_analyzer
+        analyzer = get_pool_analyzer()
+        
+        chain = request.args.get("chain")
+        limit = int(request.args.get("limit", 20))
+        min_tvl = float(request.args.get("min_tvl", 500000))
+        max_risk = float(request.args.get("max_risk", 0.8))
+        stablecoins_only = request.args.get("stablecoins_only", "false").lower() == "true"
+        
+        pools = analyzer.get_top_pools(
+            chain=chain,
+            limit=limit,
+            min_tvl=min_tvl,
+            max_risk=max_risk,
+            stablecoins_only=stablecoins_only,
+        )
+        
+        return jsonify({
+            "pools": [p.to_dict() for p in pools],
+            "count": len(pools),
+            "analyzer_status": analyzer.status(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pools/<pool_id>")
+def api_pool_detail(pool_id: str):
+    """Get detailed metrics for a specific pool."""
+    try:
+        from nexus.learning.pool_analyzer import get_pool_analyzer
+        analyzer = get_pool_analyzer()
+        
+        pool = analyzer.get_pool(pool_id)
+        if not pool:
+            return jsonify({"error": "Pool not found"}), 404
+            
+        return jsonify(pool.to_dict())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pools/compare", methods=["POST"])
+def api_pools_compare():
+    """Compare multiple pools side-by-side for decision transparency."""
+    try:
+        from nexus.learning.pool_analyzer import get_pool_analyzer
+        analyzer = get_pool_analyzer()
+        
+        data = request.get_json(force=True) or {}
+        pool_ids = data.get("pool_ids", [])
+        
+        if not pool_ids:
+            return jsonify({"error": "pool_ids required"}), 400
+            
+        comparisons = analyzer.get_pool_comparison(pool_ids)
+        return jsonify({"comparisons": comparisons})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pools/decisions")
+def api_pool_decisions():
+    """Get AI decision log showing why pools were ranked."""
+    try:
+        from nexus.learning.pool_analyzer import get_pool_analyzer
+        analyzer = get_pool_analyzer()
+        
+        limit = int(request.args.get("limit", 10))
+        decisions = analyzer.get_ai_decision_log(limit=limit)
+        
+        return jsonify({"decisions": decisions})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Pool Optimization API ─────────────────────────────────────
+
+@app.route("/api/optimize/allocation", methods=["POST"])
+def api_optimize_allocation():
+    """
+    Get AI-optimized pool allocation recommendation.
+    
+    Request JSON:
+        capital_usd (float): Total capital to allocate
+        strategy (str): "max_yield", "risk_adjusted", "conservative", "balanced", "gas_efficient"
+        chains (list): Optional - limit to specific chains
+        max_pools (int): Maximum pools to recommend (default: 5)
+    """
+    try:
+        from nexus.learning.pool_optimizer import get_pool_optimizer, OptimizationStrategy
+        optimizer = get_pool_optimizer()
+        
+        data = request.get_json(force=True) or {}
+        capital_usd = float(data.get("capital_usd", 1000))
+        strategy_name = data.get("strategy", "balanced")
+        chains = data.get("chains")
+        max_pools = int(data.get("max_pools", 5))
+        
+        strategy_map = {
+            "max_yield": OptimizationStrategy.MAX_YIELD,
+            "risk_adjusted": OptimizationStrategy.RISK_ADJUSTED,
+            "conservative": OptimizationStrategy.CONSERVATIVE,
+            "balanced": OptimizationStrategy.BALANCED,
+            "gas_efficient": OptimizationStrategy.GAS_EFFICIENT,
+        }
+        strategy = strategy_map.get(strategy_name, OptimizationStrategy.BALANCED)
+        
+        recommendations, profit_split = optimizer.get_optimal_allocation(
+            capital_usd=capital_usd,
+            strategy=strategy,
+            chains=chains,
+            max_pools=max_pools,
+        )
+        
+        return jsonify({
+            "recommendations": [r.to_dict() for r in recommendations],
+            "profit_split": profit_split.to_dict(),
+            "input": {
+                "capital_usd": capital_usd,
+                "strategy": strategy_name,
+                "chains": chains,
+                "max_pools": max_pools,
+            },
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/optimize/split", methods=["POST"])
+def api_optimize_split():
+    """
+    Optimize profit split across specified pools.
+    
+    Request JSON:
+        pool_ids (list): Pool IDs to consider
+        capital_usd (float): Total capital to allocate
+        constraints (dict): Optional allocation constraints
+    """
+    try:
+        from nexus.learning.pool_optimizer import get_pool_optimizer
+        optimizer = get_pool_optimizer()
+        
+        data = request.get_json(force=True) or {}
+        pool_ids = data.get("pool_ids", [])
+        capital_usd = float(data.get("capital_usd", 1000))
+        constraints = data.get("constraints", {})
+        
+        if not pool_ids:
+            return jsonify({"error": "pool_ids required"}), 400
+            
+        split = optimizer.optimize_profit_split(
+            pool_ids=pool_ids,
+            capital_usd=capital_usd,
+            constraints=constraints,
+        )
+        
+        return jsonify({"profit_split": split.to_dict()})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/optimize/positions")
+def api_optimize_positions():
+    """Get current positions and total exposure from optimizer."""
+    try:
+        from nexus.learning.pool_optimizer import get_pool_optimizer
+        optimizer = get_pool_optimizer()
+        
+        positions = optimizer.get_positions()
+        exposure = optimizer.get_total_exposure()
+        
+        return jsonify({
+            "positions": positions,
+            "exposure": exposure,
+            "optimizer_status": optimizer.status(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/optimize/decision", methods=["POST"])
+def api_optimize_decision():
+    """Get an optimization decision for a specific action."""
+    try:
+        from nexus.learning.pool_optimizer import get_pool_optimizer
+        optimizer = get_pool_optimizer()
+        
+        data = request.get_json(force=True) or {}
+        capital_usd = float(data.get("capital_usd", 1000))
+        action_type = data.get("action_type", "enter")
+        pool_id = data.get("pool_id")
+        
+        decision = optimizer.get_optimization_decision(
+            capital_usd=capital_usd,
+            action_type=action_type,
+            pool_id=pool_id,
+        )
+        
+        return jsonify({"decision": decision.to_dict()})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Blockchain Performance API ────────────────────────────────
+
+@app.route("/api/blockchain/latency")
+def api_blockchain_latency():
+    """Get RPC endpoint latency metrics for low-latency connection monitoring."""
+    try:
+        from nexus.execution.low_latency import get_low_latency_manager
+        ll_manager = get_low_latency_manager()
+        
+        chain = request.args.get("chain")
+        stats = ll_manager.get_endpoint_stats(chain=chain)
+        
+        return jsonify({
+            "endpoints": stats,
+            "manager_status": ll_manager.status(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── Timing API ────────────────────────────────────────────────
 
 @app.route("/api/timing")
