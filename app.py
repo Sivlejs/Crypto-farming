@@ -754,7 +754,279 @@ def api_optimize_decision():
         return jsonify({"error": str(exc)}), 500
 
 
-# ── Blockchain Performance API ────────────────────────────────
+# ── Pool Executor API (Entry/Exit/Auto-Compound) ──────────────
+
+@app.route("/api/executor/best-pools", methods=["POST"])
+def api_executor_best_pools():
+    """
+    Get the best pools to enter with given capital.
+    
+    Uses multi-source data and AI optimization to find
+    pools that outperform typical farming strategies.
+    
+    Request JSON:
+        capital_usd (float): Available capital
+        max_pools (int): Maximum pools to recommend (default: 5)
+        risk_level (str): "low", "medium", or "high" (default: "medium")
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        data = request.get_json(force=True) or {}
+        capital_usd = float(data.get("capital_usd", 1000))
+        max_pools = int(data.get("max_pools", 5))
+        risk_level = data.get("risk_level", "medium")
+        
+        recommendations = executor.get_best_pools_to_enter(
+            capital_usd=capital_usd,
+            max_pools=max_pools,
+            risk_level=risk_level,
+        )
+        
+        return jsonify({
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "input": {
+                "capital_usd": capital_usd,
+                "max_pools": max_pools,
+                "risk_level": risk_level,
+            },
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/enter", methods=["POST"])
+def api_executor_enter():
+    """
+    Enter a farming pool.
+    
+    Request JSON:
+        pool_id (str): Pool identifier
+        amount_usd (float): Amount to deposit
+        max_slippage_bps (int): Max slippage in basis points (default: 50)
+        wait_for_gas (bool): Wait for optimal gas (default: true)
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        data = request.get_json(force=True) or {}
+        pool_id = data.get("pool_id")
+        amount_usd = float(data.get("amount_usd", 0))
+        max_slippage_bps = int(data.get("max_slippage_bps", 50))
+        wait_for_gas = data.get("wait_for_gas", True)
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id required"}), 400
+        if amount_usd < 50:
+            return jsonify({"error": "Minimum amount is $50"}), 400
+        
+        result = executor.enter_pool(
+            pool_id=pool_id,
+            amount_usd=amount_usd,
+            max_slippage_bps=max_slippage_bps,
+            wait_for_gas=wait_for_gas,
+        )
+        
+        return jsonify(result.to_dict())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/exit", methods=["POST"])
+def api_executor_exit():
+    """
+    Exit a farming pool position.
+    
+    Request JSON:
+        pool_id (str): Pool identifier
+        percentage (float): Percentage to exit (default: 100)
+        max_slippage_bps (int): Max slippage in basis points (default: 50)
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        data = request.get_json(force=True) or {}
+        pool_id = data.get("pool_id")
+        percentage = float(data.get("percentage", 100))
+        max_slippage_bps = int(data.get("max_slippage_bps", 50))
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id required"}), 400
+        
+        result = executor.exit_pool(
+            pool_id=pool_id,
+            percentage=percentage,
+            max_slippage_bps=max_slippage_bps,
+        )
+        
+        return jsonify(result.to_dict())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/auto-enter", methods=["POST"])
+def api_executor_auto_enter():
+    """
+    Automatically enter the best pools with given capital.
+    
+    This is the main endpoint for automated farming that
+    outperforms manual strategies.
+    
+    Request JSON:
+        capital_usd (float): Total capital to deploy
+        max_pools (int): Maximum pools to enter (default: 5)
+        risk_level (str): "low", "medium", or "high" (default: "medium")
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        data = request.get_json(force=True) or {}
+        capital_usd = float(data.get("capital_usd", 1000))
+        max_pools = int(data.get("max_pools", 5))
+        risk_level = data.get("risk_level", "medium")
+        
+        results = executor.enter_best_pools(
+            capital_usd=capital_usd,
+            max_pools=max_pools,
+            risk_level=risk_level,
+        )
+        
+        successful = sum(1 for r in results if r.status.value in ["success", "simulated"])
+        total_deployed = sum(r.actual_amount_usd for r in results if r.status.value != "failed")
+        
+        return jsonify({
+            "results": [r.to_dict() for r in results],
+            "summary": {
+                "pools_entered": successful,
+                "total_deployed_usd": round(total_deployed, 2),
+                "success_rate": round(successful / max(len(results), 1) * 100, 2),
+            },
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/compound", methods=["POST"])
+def api_executor_compound():
+    """
+    Auto-compound rewards for all active positions.
+    
+    Reinvests accrued rewards to maximize yield through
+    compound interest.
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        results = executor.auto_compound_all()
+        
+        total_compounded = sum(r.amount_usd for r in results if r.status.value != "failed")
+        
+        return jsonify({
+            "results": [r.to_dict() for r in results],
+            "total_compounded_usd": round(total_compounded, 2),
+            "positions_compounded": len(results),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/positions")
+def api_executor_positions():
+    """Get all active pool positions."""
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        positions = executor.get_active_positions()
+        
+        return jsonify({
+            "positions": positions,
+            "count": len(positions),
+            "total_value_usd": round(sum(p.get("entry_amount_usd", 0) for p in positions), 2),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/position/<pool_id>")
+def api_executor_position(pool_id: str):
+    """Get details for a specific position."""
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        position = executor.get_position(pool_id)
+        if not position:
+            return jsonify({"error": "Position not found"}), 404
+        
+        return jsonify(position)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/history")
+def api_executor_history():
+    """Get recent execution history."""
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        limit = int(request.args.get("limit", 50))
+        history = executor.get_execution_history(limit=limit)
+        
+        return jsonify({
+            "history": history,
+            "count": len(history),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/executor/stats")
+def api_executor_stats():
+    """Get overall performance statistics."""
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        executor = get_pool_executor()
+        
+        stats = executor.get_performance_stats()
+        
+        return jsonify(stats)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/pools/sources")
+def api_pool_sources():
+    """Get status of all pool data sources."""
+    try:
+        from nexus.protocols.pool_sources import get_pool_fetcher
+        fetcher = get_pool_fetcher()
+        
+        # Trigger a fetch to update source status
+        pools = fetcher.fetch_all_pools()
+        source_status = fetcher.get_source_status()
+        
+        # Count pools by source
+        pools_by_source = {}
+        for p in pools:
+            source = p.source
+            pools_by_source[source] = pools_by_source.get(source, 0) + 1
+        
+        return jsonify({
+            "sources": source_status,
+            "pools_by_source": pools_by_source,
+            "total_pools": len(pools),
+            "active_sources": sum(1 for v in source_status.values() if v),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 @app.route("/api/blockchain/latency")
 def api_blockchain_latency():
