@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import requests
 
+from nexus.protocols.pool_sources import get_pool_fetcher, PoolData
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -365,46 +366,51 @@ class PoolAnalyzer:
     # ── Data Fetching ─────────────────────────────────────────
 
     def _refresh_pools(self):
-        """Fetch latest pool data from DeFi Llama."""
+        """Fetch latest pool data from multiple sources."""
         try:
-            resp = requests.get(DEFILLAMA_POOLS_URL, timeout=30)
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
-
+            # Use multi-source fetcher for broader pool discovery
+            fetcher = get_pool_fetcher()
+            pool_data_list = fetcher.fetch_all_pools(force_refresh=True)
+            
+            # Log source status for debugging
+            source_status = fetcher.get_source_status()
+            active_sources = [s for s, active in source_status.items() if active]
+            logger.info("Pool refresh using sources: %s", ", ".join(active_sources) or "none")
+            
             now = time.time()
             new_pools = {}
 
-            for p in data:
+            for p in pool_data_list:
                 # Filter by supported chains
-                chain = (p.get("chain") or "").lower()
+                chain = p.chain
                 if chain not in CHAIN_RISK_TIERS:
                     continue
 
                 # Skip very low TVL pools (< $100k)
-                tvl = float(p.get("tvlUsd", 0) or 0)
+                tvl = p.tvl_usd
                 if tvl < 100_000:
                     continue
 
-                pool_id = p.get("pool", "")
+                pool_id = p.pool_id
                 if not pool_id:
                     continue
 
-                # Parse pool data
-                apy_base = float(p.get("apyBase", 0) or 0)
-                apy_reward = float(p.get("apyReward", 0) or 0)
-                apy_total = float(p.get("apy", 0) or apy_base + apy_reward)
+                # Parse pool data from PoolData object
+                apy_base = p.apy_base
+                apy_reward = p.apy_reward
+                apy_total = p.apy_total
 
                 # Determine IL risk based on pool type
-                stablecoin = bool(p.get("stablecoin", False))
-                il_risk = self._estimate_il_risk(p)
+                stablecoin = p.stablecoin
+                il_risk = self._estimate_il_risk_from_pool_data(p)
 
-                exposure = p.get("underlyingTokens", []) or []
-                reward_tokens = p.get("rewardTokens", []) or []
+                exposure = p.exposure[:5] if p.exposure else []
+                reward_tokens = p.reward_tokens[:3] if p.reward_tokens else []
 
                 metrics = PoolMetrics(
                     pool_id=pool_id,
-                    symbol=p.get("symbol", "?"),
-                    protocol=p.get("project", "unknown"),
+                    symbol=p.symbol or "?",
+                    protocol=p.protocol or "unknown",
                     chain=chain,
                     tvl_usd=tvl,
                     apy_base=apy_base,
@@ -412,8 +418,8 @@ class PoolAnalyzer:
                     apy_total=apy_total,
                     il_risk=il_risk,
                     stablecoin=stablecoin,
-                    exposure=exposure[:5] if exposure else [],
-                    reward_tokens=reward_tokens[:3] if reward_tokens else [],
+                    exposure=exposure,
+                    reward_tokens=reward_tokens,
                     last_updated=now,
                 )
 
@@ -438,13 +444,115 @@ class PoolAnalyzer:
                 self._refresh_count += 1
 
             logger.info(
-                "Pool refresh #%d: %d pools indexed across %d chains",
+                "Pool refresh #%d: %d pools indexed across %d chains (sources: %s)",
                 self._refresh_count, len(new_pools),
-                len(set(p.chain for p in new_pools.values()))
+                len(set(p.chain for p in new_pools.values())),
+                ", ".join(active_sources)
             )
 
         except Exception as exc:
-            logger.warning("DeFi Llama fetch failed: %s", exc)
+            logger.warning("Pool refresh failed: %s", exc)
+            # Fallback to DeFi Llama only if multi-source fails completely
+            self._refresh_pools_fallback()
+    
+    def _refresh_pools_fallback(self):
+        """Fallback to DeFi Llama only if multi-source fetch fails."""
+        try:
+            resp = requests.get(DEFILLAMA_POOLS_URL, timeout=30)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+
+            now = time.time()
+            new_pools = {}
+
+            for p in data:
+                chain = (p.get("chain") or "").lower()
+                if chain not in CHAIN_RISK_TIERS:
+                    continue
+
+                tvl = float(p.get("tvlUsd", 0) or 0)
+                if tvl < 100_000:
+                    continue
+
+                pool_id = p.get("pool", "")
+                if not pool_id:
+                    continue
+
+                apy_base = float(p.get("apyBase", 0) or 0)
+                apy_reward = float(p.get("apyReward", 0) or 0)
+                apy_total = float(p.get("apy", 0) or apy_base + apy_reward)
+
+                stablecoin = bool(p.get("stablecoin", False))
+                il_risk = self._estimate_il_risk(p)
+
+                exposure = p.get("underlyingTokens", []) or []
+                reward_tokens = p.get("rewardTokens", []) or []
+
+                metrics = PoolMetrics(
+                    pool_id=pool_id,
+                    symbol=p.get("symbol", "?"),
+                    protocol=p.get("project", "unknown"),
+                    chain=chain,
+                    tvl_usd=tvl,
+                    apy_base=apy_base,
+                    apy_reward=apy_reward,
+                    apy_total=apy_total,
+                    il_risk=il_risk,
+                    stablecoin=stablecoin,
+                    exposure=exposure[:5] if exposure else [],
+                    reward_tokens=reward_tokens[:3] if reward_tokens else [],
+                    last_updated=now,
+                )
+
+                self._compute_historical_metrics(metrics)
+                metrics.composite_score = self._compute_composite_score(metrics)
+                metrics.risk_score = self._compute_risk_score(metrics)
+                metrics.confidence = self._compute_confidence(metrics)
+
+                new_pools[pool_id] = metrics
+                self._db.record_snapshot(metrics)
+
+            with self._lock:
+                self._pools = new_pools
+                self._update_rankings()
+                self._last_refresh = now
+                self._refresh_count += 1
+
+            logger.info(
+                "Pool refresh (fallback) #%d: %d pools indexed",
+                self._refresh_count, len(new_pools)
+            )
+
+        except Exception as exc:
+            logger.warning("DeFi Llama fallback fetch also failed: %s", exc)
+    
+    def _estimate_il_risk_from_pool_data(self, pool: PoolData) -> float:
+        """
+        Estimate impermanent loss risk for a PoolData object.
+        0 = no IL risk (stablecoins), 1 = very high IL risk
+        """
+        if pool.stablecoin:
+            return 0.0
+
+        # Check for volatile pairs
+        symbol = (pool.symbol or "").upper()
+        exposure = pool.exposure or []
+
+        # Stablecoin pairs have low IL
+        stable_tokens = {"USDC", "USDT", "DAI", "BUSD", "FRAX", "LUSD", "TUSD"}
+        stable_count = sum(1 for t in exposure if any(s in t.upper() for s in stable_tokens))
+
+        if stable_count >= 2:
+            return 0.1
+        elif stable_count == 1:
+            return 0.4
+
+        # Check for correlated pairs (e.g., ETH/WETH, BTC/WBTC)
+        if any(x in symbol for x in ["ETH-WETH", "BTC-WBTC", "STETH-ETH"]):
+            return 0.2
+
+        # Standard volatile pairs
+        return 0.7
 
     def _estimate_il_risk(self, pool_data: dict) -> float:
         """
