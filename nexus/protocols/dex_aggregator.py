@@ -68,7 +68,7 @@ class PriceAggregator:
 
     _cache: dict[str, tuple[float, float]] = {}  # symbol -> (price_usd, timestamp)
     _yield_cache: tuple[List[dict], float] = ([], 0.0)  # (pools, timestamp) for yield rates
-    CACHE_TTL = 30  # seconds
+    CACHE_TTL = 60  # seconds (increased from 30 to reduce CoinGecko rate limiting)
     YIELD_CACHE_TTL = 300  # 5 minutes for yield data (DeFi Llama updates less frequently)
 
     @classmethod
@@ -88,33 +88,57 @@ class PriceAggregator:
         if len(all_cached) == len(symbols):
             return all_cached
 
-        try:
-            base = "https://pro-api.coingecko.com" if Config.COINGECKO_API_KEY else "https://api.coingecko.com"
-            headers = {}
-            if Config.COINGECKO_API_KEY:
-                headers["x-cg-pro-api-key"] = Config.COINGECKO_API_KEY
+        base = "https://pro-api.coingecko.com" if Config.COINGECKO_API_KEY else "https://api.coingecko.com"
+        headers = {}
+        if Config.COINGECKO_API_KEY:
+            headers["x-cg-pro-api-key"] = Config.COINGECKO_API_KEY
 
-            resp = requests.get(
-                f"{base}/api/v3/simple/price",
-                params={"ids": ",".join(ids), "vs_currencies": "usd"},
-                headers=headers,
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = requests.get(
+                    f"{base}/api/v3/simple/price",
+                    params={"ids": ",".join(ids), "vs_currencies": "usd"},
+                    headers=headers,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-            prices: Dict[str, float] = {}
-            for symbol in symbols:
-                cg_id = COINGECKO_IDS.get(symbol)
-                if cg_id and cg_id in data:
-                    price = float(data[cg_id]["usd"])
-                    prices[symbol] = price
-                    cls._cache[symbol] = (price, now)
-            return prices
-        except Exception as exc:
-            logger.warning("CoinGecko price fetch failed: %s", exc)
-            # Return stale cache if available
-            return {s: cls._cache[s][0] for s in symbols if s in cls._cache}
+                prices: Dict[str, float] = {}
+                for symbol in symbols:
+                    cg_id = COINGECKO_IDS.get(symbol)
+                    if cg_id and cg_id in data:
+                        price = float(data[cg_id]["usd"])
+                        prices[symbol] = price
+                        cls._cache[symbol] = (price, now)
+                return prices
+            except requests.exceptions.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 429:
+                    # Rate limited - apply exponential backoff
+                    last_error = exc
+                    retry_delay = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.debug(
+                        "CoinGecko rate limited (attempt %d/%d), retrying in %ds...",
+                        attempt + 1, MAX_RETRIES, retry_delay
+                    )
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.warning("CoinGecko price fetch failed: %s", exc)
+                    # Return stale cache if available
+                    return {s: cls._cache[s][0] for s in symbols if s in cls._cache}
+            except Exception as exc:
+                logger.warning("CoinGecko price fetch failed: %s", exc)
+                # Return stale cache if available
+                return {s: cls._cache[s][0] for s in symbols if s in cls._cache}
+
+        # All retries exhausted
+        if last_error:
+            logger.warning("CoinGecko price fetch failed after %d retries: %s", MAX_RETRIES, last_error)
+        # Return stale cache if available
+        return {s: cls._cache[s][0] for s in symbols if s in cls._cache}
 
     @classmethod
     def get_price(cls, symbol: str) -> Optional[float]:

@@ -3,7 +3,7 @@ Real-Time Price & Block Feed for Nexus AI.
 
 Maintains live price data and block events via:
   1. WebSocket subscriptions (newHeads, pending txs) from the RPC node
-  2. CoinGecko polling (30 s refresh) as price baseline
+  2. CoinGecko polling (60s refresh) as price baseline
   3. In-memory cache with microsecond access
 
 Consumers simply call feed.price("ETH") and get the latest USD price
@@ -42,8 +42,10 @@ CG_IDS = {
     "CVX":   "convex-finance",
 }
 
-PRICE_REFRESH_SECONDS  = 20
+PRICE_REFRESH_SECONDS  = 60   # Increased from 20s to reduce CoinGecko rate limiting
 BLOCK_LISTENERS_MAX    = 50   # max registered block callbacks
+RETRY_BACKOFF_BASE     = 2    # exponential backoff base in seconds
+MAX_RETRIES            = 3    # max retry attempts for failed API calls
 
 
 class PriceFeed:
@@ -133,28 +135,51 @@ class PriceFeed:
         if Config.COINGECKO_API_KEY:
             headers["x-cg-pro-api-key"] = Config.COINGECKO_API_KEY
 
-        try:
-            resp = requests.get(
-                f"{base}/api/v3/simple/price",
-                params={"ids": ",".join(ids), "vs_currencies": "usd"},
-                headers=headers,
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            now = time.time()
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = requests.get(
+                    f"{base}/api/v3/simple/price",
+                    params={"ids": ",".join(ids), "vs_currencies": "usd"},
+                    headers=headers,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                now = time.time()
 
-            reverse = {v: k for k, v in CG_IDS.items()}
-            with self._lock:
-                for cg_id, prices in data.items():
-                    symbol = reverse.get(cg_id)
-                    if symbol and "usd" in prices:
-                        self._prices[symbol]     = float(prices["usd"])
-                        self._timestamps[symbol] = now
+                reverse = {v: k for k, v in CG_IDS.items()}
+                with self._lock:
+                    for cg_id, prices in data.items():
+                        symbol = reverse.get(cg_id)
+                        if symbol and "usd" in prices:
+                            self._prices[symbol]     = float(prices["usd"])
+                            self._timestamps[symbol] = now
 
-            logger.debug("Prices refreshed: %d tokens", len(data))
-        except Exception as exc:
-            logger.warning("CoinGecko fetch failed: %s", exc)
+                logger.debug("Prices refreshed: %d tokens", len(data))
+                return  # Success, exit retry loop
+            except requests.exceptions.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 429:
+                    # Rate limited - apply exponential backoff
+                    last_error = exc
+                    retry_delay = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.debug(
+                        "CoinGecko rate limited (attempt %d/%d), retrying in %ds...",
+                        attempt + 1, MAX_RETRIES, retry_delay
+                    )
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.warning("CoinGecko fetch failed: %s", exc)
+                    return  # Non-retryable HTTP error
+            except Exception as exc:
+                logger.warning("CoinGecko fetch failed: %s", exc)
+                return  # Non-retryable error
+
+        # All retries exhausted
+        if last_error:
+            logger.warning("CoinGecko fetch failed after %d retries: %s", MAX_RETRIES, last_error)
 
     # ── Block feed (HTTP polling fallback) ────────────────────
 
