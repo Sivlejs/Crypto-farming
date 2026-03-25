@@ -117,7 +117,7 @@ class PriceAggregator:
                 if exc.response is not None and exc.response.status_code == 429:
                     # Rate limited - apply exponential backoff
                     last_error = exc
-                    retry_delay = RETRY_BACKOFF_BASE ** (attempt + 1)
+                    retry_delay = RETRY_BACKOFF_BASE ** attempt  # 2^0=1, 2^1=2, 2^2=4 → ~1s, 2s, 4s
                     logger.debug(
                         "CoinGecko rate limited (attempt %d/%d), retrying in %ds...",
                         attempt + 1, MAX_RETRIES, retry_delay
