@@ -49,6 +49,12 @@ class Config:
     SLIPPAGE_PERCENT: float = _float("SLIPPAGE_PERCENT", 0.5)
     MAX_TRADE_USD: float = _float("MAX_TRADE_USD", 500.0)
 
+    # Pool discovery settings
+    # Minimum TVL (in USD) for pools to be considered (lowered from 50k for better discovery)
+    MIN_TVL_USD: float = _float("MIN_TVL_USD", 10000.0)
+    # Path for persistent pool cache (used when APIs fail)
+    POOL_CACHE_FILE: str = os.getenv("POOL_CACHE_FILE", "/tmp/nexus_pools_cache.json")
+
     # Scan interval in seconds
     SCAN_INTERVAL_SECONDS: int = _int("SCAN_INTERVAL_SECONDS", 15)
 
