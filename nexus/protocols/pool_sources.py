@@ -25,7 +25,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import requests
 
@@ -503,7 +503,12 @@ def _request_with_retry(
             last_error = exc
             # Handle rate limiting specifically
             if exc.response is not None and exc.response.status_code == 429:
-                retry_after = int(exc.response.headers.get("Retry-After", RETRY_BACKOFF_DELAYS[min(attempt, len(RETRY_BACKOFF_DELAYS) - 1)] * 2))
+                # Retry-After can be seconds (int) or HTTP date - handle both
+                retry_header = exc.response.headers.get("Retry-After", "")
+                try:
+                    retry_after = int(retry_header)
+                except (ValueError, TypeError):
+                    retry_after = RETRY_BACKOFF_DELAYS[min(attempt, len(RETRY_BACKOFF_DELAYS) - 1)] * 2
                 logger.warning("Rate limited by %s. Waiting %ds", url, retry_after)
                 time.sleep(retry_after)
                 continue
@@ -609,7 +614,7 @@ def _save_pools_to_disk(pools: List[PoolData]) -> bool:
         return False
 
 
-def _load_pools_from_disk(max_age_hours: int = 24) -> List[PoolData]:
+def _load_pools_from_disk(max_age_hours: int = 48) -> List[PoolData]:
     """
     Load pools from persistent disk cache.
     
@@ -617,6 +622,7 @@ def _load_pools_from_disk(max_age_hours: int = 24) -> List[PoolData]:
     
     Args:
         max_age_hours: Maximum age of cache in hours before it's considered stale.
+                       Default is 48 hours to allow recovery from extended API outages.
     """
     try:
         if not PERSISTENT_CACHE_FILE.exists():
@@ -636,12 +642,14 @@ def _load_pools_from_disk(max_age_hours: int = 24) -> List[PoolData]:
         pools = []
         for p in cache_data.get("pools", []):
             try:
+                # Handle both 'apy' (from to_dict) and 'apy_total' (legacy) field names
+                apy_total = p.get("apy_total", p.get("apy", 0))
                 pools.append(PoolData(
                     pool_id=p["pool_id"],
                     protocol=p["protocol"],
                     chain=p["chain"],
                     symbol=p["symbol"],
-                    apy_total=p["apy"],
+                    apy_total=apy_total,
                     apy_base=p.get("apy_base", 0),
                     apy_reward=p.get("apy_reward", 0),
                     tvl_usd=p.get("tvl_usd", 0),
@@ -1130,7 +1138,7 @@ class MultiSourcePoolFetcher:
         all_pools: List[PoolData] = []
         
         # Define all sources with their fetch functions
-        sources: List[tuple[str, Callable[[], List[PoolData]]]] = [
+        sources: List[Tuple[str, Callable[[], List[PoolData]]]] = [
             ("defillama", fetch_defillama_pools),
             ("curve", fetch_curve_pools),
             ("balancer", fetch_balancer_pools),
