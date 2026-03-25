@@ -218,13 +218,15 @@ class PriceAggregator:
                     # Compute APY: use explicit value or sum of base + reward
                     apy_base = float(p.get("apyBase") or 0)
                     apy_reward = float(p.get("apyReward") or 0)
-                    apy = p.get("apy")
+                    raw_apy = p.get("apy")
                     
-                    if apy is not None and apy > 0:
-                        apy = float(apy)
+                    # Use explicit apy if it's a valid positive number, otherwise compute from components
+                    if raw_apy is not None and float(raw_apy) > 0:
+                        apy = float(raw_apy)
                     else:
                         apy = apy_base + apy_reward
                     
+                    # Skip pools with no yield after computation
                     if apy <= 0:
                         continue
                     

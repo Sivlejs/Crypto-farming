@@ -76,15 +76,19 @@ class YieldFarmingStrategy(BaseStrategy):
             # Track if this chain is connected for execution
             chain_connected = our_chain in connected
 
-            apy = pool.get("apy", 0)
             tvl = pool.get("tvl_usd", 0)
-
+            
+            # Compute APY: use explicit value or sum of base + reward
+            apy_base = pool.get("apy_base", 0) or 0
+            apy_reward = pool.get("apy_reward", 0) or 0
+            apy = pool.get("apy")
+            if apy is None or apy <= 0:
+                apy = apy_base + apy_reward
+            
             if apy < MIN_APY or tvl < MIN_TVL_USD:
                 continue
 
             # Confidence: higher TVL and lower reward-portion = more stable
-            apy_base = pool.get("apy_base", 0) or 0
-            apy_reward = pool.get("apy_reward", 0) or 0
             reward_ratio = apy_reward / apy if apy > 0 else 0
 
             base_confidence = min(0.9, tvl / 10_000_000)  # caps at 0.9 for $10M TVL

@@ -84,7 +84,13 @@ class VaultOptimizerStrategy(BaseStrategy):
                     continue
                 
                 raw_chain = pool.get("chain","").lower()
-                chain = CHAIN_ALIASES.get(raw_chain, raw_chain) or "ethereum"
+                chain = CHAIN_ALIASES.get(raw_chain, raw_chain)
+                
+                # Skip pools with unknown/unsupported chains
+                if not chain:
+                    logger.debug("[vault_optimizer] Skipping pool with unknown chain: %s", raw_chain)
+                    continue
+                
                 chain_connected = chain in connected
                 
                 # Adjust confidence based on connection status
