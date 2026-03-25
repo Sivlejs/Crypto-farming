@@ -21,7 +21,11 @@ envVarGroups:
         sync: false
 
 services:
-  # ── Web Dashboard + API ──────────────────────────────────────
+  # ══════════════════════════════════════════════════════════════
+  # WEB LAYER
+  # ══════════════════════════════════════════════════════════════
+
+  # ── Web Dashboard + API Gateway ─────────────────────────────────
   - type: web
     name: nexus-ai-web
     env: python
@@ -37,6 +41,8 @@ services:
         value: "1"
       - key: PORT
         value: "10000"
+      - key: SERVICE_ROLE
+        value: "web"
       - key: REDIS_URL
         fromService:
           name: nexus-ai-redis
@@ -44,7 +50,11 @@ services:
           property: connectionString
       - fromGroup: nexus-ai-secrets
 
-  # ── Background Worker (the actual farming bot) ────────────────
+  # ══════════════════════════════════════════════════════════════
+  # CORE WORKER
+  # ══════════════════════════════════════════════════════════════
+
+  # ── Background Worker (Core Farming Execution) ──────────────────
   - type: worker
     name: nexus-ai-worker
     env: python
@@ -55,6 +65,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: SERVICE_ROLE
+        value: "worker"
       - key: REDIS_URL
         fromService:
           name: nexus-ai-redis
@@ -62,7 +74,109 @@ services:
           property: connectionString
       - fromGroup: nexus-ai-secrets
 
-  # ── Redis (shared state + ML model cache) ─────────────────────
+  # ══════════════════════════════════════════════════════════════
+  # AI / ML INFERENCE SERVICE
+  # ══════════════════════════════════════════════════════════════
+
+  # ── AI Inference (Pool Analysis, Predictions, Scoring) ──────────
+  - type: worker
+    name: nexus-ai-inference
+    env: python
+    region: oregon
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: python nexus/services/ai_inference_service.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: SERVICE_PORT
+        value: "8001"
+      - key: SERVICE_ROLE
+        value: "ai_inference"
+      - key: MODEL_CACHE_SIZE
+        value: "100"
+      - key: PREDICTION_BATCH_SIZE
+        value: "50"
+      - key: POOL_REFRESH_INTERVAL
+        value: "300"
+      - key: REDIS_URL
+        fromService:
+          name: nexus-ai-redis
+          type: redis
+          property: connectionString
+      - fromGroup: nexus-ai-secrets
+
+  # ══════════════════════════════════════════════════════════════
+  # BLOCKCHAIN SERVICE
+  # ══════════════════════════════════════════════════════════════
+
+  # ── Blockchain (Low-Latency RPC Connections) ────────────────────
+  - type: worker
+    name: nexus-ai-blockchain
+    env: python
+    region: oregon
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: python nexus/services/blockchain_service.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: SERVICE_PORT
+        value: "8002"
+      - key: SERVICE_ROLE
+        value: "blockchain"
+      - key: MAX_CONNECTIONS_PER_CHAIN
+        value: "5"
+      - key: LATENCY_CHECK_INTERVAL
+        value: "15"
+      - key: REQUEST_TIMEOUT
+        value: "10"
+      - key: ENABLE_WEBSOCKET
+        value: "true"
+      - key: REDIS_URL
+        fromService:
+          name: nexus-ai-redis
+          type: redis
+          property: connectionString
+      - fromGroup: nexus-ai-secrets
+
+  # ══════════════════════════════════════════════════════════════
+  # MONITORING SERVICE
+  # ══════════════════════════════════════════════════════════════
+
+  # ── Real-Time Monitoring ────────────────────────────────────────
+  - type: worker
+    name: nexus-ai-monitoring
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python nexus/services/monitoring_service.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: SERVICE_PORT
+        value: "8003"
+      - key: SERVICE_ROLE
+        value: "monitoring"
+      - key: METRICS_RETENTION_HOURS
+        value: "168"
+      - key: ALERT_CHECK_INTERVAL
+        value: "60"
+      - key: DASHBOARD_REFRESH_SECONDS
+        value: "5"
+      - key: REDIS_URL
+        fromService:
+          name: nexus-ai-redis
+          type: redis
+          property: connectionString
+      - fromGroup: nexus-ai-secrets
+
+  # ══════════════════════════════════════════════════════════════
+  # REDIS (SHARED STATE)
+  # ══════════════════════════════════════════════════════════════
+
+  # ── Redis (shared state + ML model cache) ───────────────────────
   - type: redis
     name: nexus-ai-redis
     region: oregon

@@ -78,6 +78,7 @@ function switchTab(name){
   document.querySelectorAll(`.nav-item[data-tab="${name}"]`).forEach(n=>n.classList.add('active'));
   if (name==='prices')   loadYields();
   if (name==='settings') renderSettings();
+  if (name==='pools')    loadPoolAnalysis();
 }
 document.querySelectorAll('.nav-item').forEach(n=>{
   n.addEventListener('click', e=>{ e.preventDefault(); switchTab(n.dataset.tab); });
@@ -1269,3 +1270,396 @@ setTimeout(() => {
     loadSettings();
   }
 }, 1000);
+
+
+// ══════════════════════════════════════════════════════════════════
+// POOL ANALYSIS FUNCTIONS
+// ══════════════════════════════════════════════════════════════════
+
+let _poolsData = [];
+let _positionsData = [];
+let _poolDecisions = [];
+
+async function loadPoolAnalysis() {
+  try {
+    // Load pools
+    await filterPools();
+    
+    // Load positions
+    await loadPositions();
+    
+    // Load AI decisions
+    await loadPoolDecisions();
+    
+  } catch(e) {
+    console.error('Pool analysis load error:', e);
+    toast('Failed to load pool analysis', 'error');
+  }
+}
+
+async function filterPools() {
+  const chain = document.getElementById('pool-filter-chain')?.value || '';
+  const maxRisk = document.getElementById('pool-filter-risk')?.value || '0.8';
+  const poolType = document.getElementById('pool-filter-type')?.value || '';
+  const minTvl = document.getElementById('pool-filter-min-tvl')?.value || '500000';
+  
+  try {
+    let url = `/api/pools?limit=50&max_risk=${maxRisk}&min_tvl=${minTvl}`;
+    if (chain) url += `&chain=${chain}`;
+    if (poolType === 'stablecoins') url += '&stablecoins_only=true';
+    
+    const resp = await fetch(url);
+    const data = await resp.json();
+    
+    if (data.error) {
+      toast(data.error, 'error');
+      return;
+    }
+    
+    _poolsData = data.pools || [];
+    renderPoolTable();
+    updatePoolKPIs(data.analyzer_status);
+    
+  } catch(e) {
+    console.error('Filter pools error:', e);
+  }
+}
+
+function renderPoolTable() {
+  const tbody = document.getElementById('pool-table-body');
+  const countEl = document.getElementById('pool-table-count');
+  
+  if (!tbody) return;
+  
+  if (_poolsData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;">No pools found. Adjust filters or wait for data to load.</td></tr>';
+    if (countEl) countEl.textContent = '0 pools';
+    return;
+  }
+  
+  if (countEl) countEl.textContent = `${_poolsData.length} pools`;
+  
+  tbody.innerHTML = _poolsData.map((pool, idx) => {
+    const riskClass = pool.risk_score < 0.3 ? 'green' : pool.risk_score < 0.6 ? 'accent2' : 'red';
+    const scoreClass = pool.composite_score > 0.6 ? 'green' : pool.composite_score > 0.4 ? 'accent2' : '';
+    
+    return `<tr>
+      <td><span class="rank-badge">#${idx + 1}</span></td>
+      <td>
+        <strong>${pool.symbol}</strong>
+        ${pool.stablecoin ? '<span class="stable-badge">🛡 Stable</span>' : ''}
+      </td>
+      <td>${pool.protocol}</td>
+      <td><span class="chain-badge ${pool.chain}">${pool.chain}</span></td>
+      <td class="green"><strong>${pool.apy_total.toFixed(1)}%</strong></td>
+      <td>${fmtBig(pool.tvl_usd)}</td>
+      <td><span class="${riskClass}">${(pool.risk_score * 100).toFixed(0)}%</span></td>
+      <td><span class="${scoreClass}">${pool.composite_score.toFixed(3)}</span></td>
+      <td>
+        <button class="btn-sm" onclick="showPoolDetails('${pool.pool_id}')" title="View Details">🔍</button>
+        <button class="btn-sm" onclick="addToAllocation('${pool.pool_id}')" title="Add to Allocation">➕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function updatePoolKPIs(analyzerStatus) {
+  const status = analyzerStatus || {};
+  
+  const analyzedEl = document.querySelector('#pool-kpi-analyzed .kpi-value');
+  const topApyEl = document.querySelector('#pool-kpi-top-apy .kpi-value');
+  
+  if (analyzedEl) analyzedEl.textContent = status.pool_count || _poolsData.length;
+  
+  if (topApyEl && _poolsData.length > 0) {
+    const maxApy = Math.max(..._poolsData.map(p => p.apy_total));
+    topApyEl.textContent = maxApy.toFixed(1) + '%';
+  }
+}
+
+async function loadPositions() {
+  try {
+    const resp = await fetch('/api/optimize/positions');
+    const data = await resp.json();
+    
+    _positionsData = data.positions || [];
+    renderPositionsTable(data.exposure);
+    
+    // Update KPIs
+    const posCountEl = document.querySelector('#pool-kpi-positions .kpi-value');
+    const exposureEl = document.querySelector('#pool-kpi-exposure .kpi-value');
+    const pnlEl = document.getElementById('positions-pnl');
+    
+    if (posCountEl) posCountEl.textContent = _positionsData.length;
+    if (exposureEl) exposureEl.textContent = fmtUSD(data.exposure?.total_value_usd || 0);
+    if (pnlEl) {
+      const pnl = data.exposure?.total_pnl_usd || 0;
+      pnlEl.textContent = `Total PnL: ${fmtUSD(pnl)}`;
+      pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    
+  } catch(e) {
+    console.error('Load positions error:', e);
+  }
+}
+
+function renderPositionsTable(exposure) {
+  const tbody = document.getElementById('positions-table-body');
+  if (!tbody) return;
+  
+  if (_positionsData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-dim);">No active positions</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = _positionsData.map(pos => {
+    const pnlClass = pos.pnl_usd >= 0 ? 'green' : 'red';
+    const apyChange = pos.current_apy - pos.entry_apy;
+    const apyClass = apyChange >= 0 ? 'green' : 'red';
+    
+    return `<tr>
+      <td><strong>${pos.symbol}</strong></td>
+      <td>${pos.protocol}</td>
+      <td><span class="chain-badge ${pos.chain}">${pos.chain}</span></td>
+      <td>${fmtUSD(pos.entry_amount_usd)}</td>
+      <td>${fmtUSD(pos.current_value_usd)}</td>
+      <td>${pos.entry_apy.toFixed(1)}%</td>
+      <td class="${apyClass}">${pos.current_apy.toFixed(1)}% (${apyChange >= 0 ? '+' : ''}${apyChange.toFixed(1)}%)</td>
+      <td class="${pnlClass}"><strong>${fmtUSD(pos.pnl_usd)}</strong> (${pos.pnl_pct >= 0 ? '+' : ''}${pos.pnl_pct.toFixed(2)}%)</td>
+      <td>${pos.duration_hours.toFixed(1)}h</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadPoolDecisions() {
+  try {
+    const resp = await fetch('/api/pools/decisions');
+    const data = await resp.json();
+    
+    _poolDecisions = data.decisions || [];
+    renderPoolDecisions();
+    
+  } catch(e) {
+    console.error('Load decisions error:', e);
+  }
+}
+
+function renderPoolDecisions() {
+  const container = document.getElementById('pool-ai-decisions');
+  if (!container) return;
+  
+  if (_poolDecisions.length === 0) {
+    container.innerHTML = '<div class="opp-card" style="text-align:center;color:var(--text-dim);">Loading AI decisions...</div>';
+    return;
+  }
+  
+  container.innerHTML = _poolDecisions.map(dec => {
+    const recClass = dec.recommendation === 'CONSIDER' ? 'green' : 'accent2';
+    
+    return `<div class="opp-card">
+      <div class="opp-header">
+        <span class="opp-type-badge">#${dec.rank} ${dec.symbol}</span>
+        <span class="${recClass}">${dec.recommendation}</span>
+      </div>
+      <div class="opp-details">
+        <span>Protocol: ${dec.protocol}</span>
+        <span>Chain: ${dec.chain}</span>
+        <span>Score: ${dec.score.toFixed(4)}</span>
+      </div>
+      <div class="opp-factors" style="margin-top:0.5rem;font-size:0.8rem;">
+        ${dec.factors.map(f => {
+          const cls = f.startsWith('+') ? 'green' : 'red';
+          return `<span class="${cls}" style="display:inline-block;margin:2px 4px 2px 0;">${f}</span>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function showPoolDetails(poolId) {
+  try {
+    const resp = await fetch(`/api/pools/${poolId}`);
+    const pool = await resp.json();
+    
+    if (pool.error) {
+      toast(pool.error, 'error');
+      return;
+    }
+    
+    // Create modal content
+    const content = `
+      <div class="pool-detail-modal">
+        <h3>${pool.symbol} - ${pool.protocol}</h3>
+        <div class="pool-detail-grid">
+          <div><strong>Chain:</strong> ${pool.chain}</div>
+          <div><strong>TVL:</strong> ${fmtBig(pool.tvl_usd)}</div>
+          <div><strong>Base APY:</strong> ${pool.apy_base.toFixed(2)}%</div>
+          <div><strong>Reward APY:</strong> ${pool.apy_reward.toFixed(2)}%</div>
+          <div><strong>Total APY:</strong> <span class="green">${pool.apy_total.toFixed(2)}%</span></div>
+          <div><strong>7d Avg APY:</strong> ${pool.apy_7d_avg.toFixed(2)}%</div>
+          <div><strong>30d Avg APY:</strong> ${pool.apy_30d_avg.toFixed(2)}%</div>
+          <div><strong>APY Volatility:</strong> ${pool.apy_volatility.toFixed(2)}%</div>
+          <div><strong>TVL Change 7d:</strong> ${pool.tvl_change_7d >= 0 ? '+' : ''}${pool.tvl_change_7d.toFixed(2)}%</div>
+          <div><strong>TVL Change 30d:</strong> ${pool.tvl_change_30d >= 0 ? '+' : ''}${pool.tvl_change_30d.toFixed(2)}%</div>
+          <div><strong>Risk Score:</strong> ${(pool.risk_score * 100).toFixed(0)}%</div>
+          <div><strong>IL Risk:</strong> ${(pool.il_risk * 100).toFixed(0)}%</div>
+          <div><strong>Composite Score:</strong> ${pool.composite_score.toFixed(4)}</div>
+          <div><strong>Confidence:</strong> ${(pool.confidence * 100).toFixed(0)}%</div>
+          <div><strong>Stablecoin:</strong> ${pool.stablecoin ? 'Yes 🛡' : 'No'}</div>
+        </div>
+        <div style="margin-top:1rem;">
+          <strong>Underlying Tokens:</strong> ${pool.exposure.join(', ') || 'N/A'}
+        </div>
+        <div style="margin-top:0.5rem;">
+          <strong>Reward Tokens:</strong> ${pool.reward_tokens.join(', ') || 'N/A'}
+        </div>
+      </div>
+    `;
+    
+    showModal('Pool Details', content);
+    
+  } catch(e) {
+    toast('Failed to load pool details', 'error');
+  }
+}
+
+function addToAllocation(poolId) {
+  // TODO: Implement allocation builder functionality
+  // For now, show a toast with instructions to use the allocation modal
+  toast(`To allocate to this pool, use the "Get Allocation" button to generate an AI recommendation including this pool.`, 'info');
+}
+
+async function showAllocationModal() {
+  const content = `
+    <div class="allocation-form">
+      <div class="setting-row">
+        <label>Capital to Allocate (USD)</label>
+        <input type="number" id="alloc-capital" value="1000" min="100" step="100" />
+      </div>
+      <div class="setting-row">
+        <label>Strategy</label>
+        <select id="alloc-strategy">
+          <option value="balanced">Balanced</option>
+          <option value="max_yield">Maximum Yield</option>
+          <option value="conservative">Conservative (Low Risk)</option>
+          <option value="risk_adjusted">Risk-Adjusted</option>
+          <option value="gas_efficient">Gas Efficient</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Max Pools</label>
+        <select id="alloc-max-pools">
+          <option value="3">3 pools</option>
+          <option value="5" selected>5 pools</option>
+          <option value="7">7 pools</option>
+          <option value="10">10 pools</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <button class="btn btn-green" onclick="getAIAllocation()">🤖 Get AI Recommendation</button>
+      </div>
+      <div id="allocation-result"></div>
+    </div>
+  `;
+  
+  showModal('AI Allocation Recommendation', content);
+}
+
+async function getAIAllocation() {
+  const capital = parseFloat(document.getElementById('alloc-capital')?.value || 1000);
+  const strategy = document.getElementById('alloc-strategy')?.value || 'balanced';
+  const maxPools = parseInt(document.getElementById('alloc-max-pools')?.value || 5);
+  
+  const resultDiv = document.getElementById('allocation-result');
+  if (resultDiv) resultDiv.innerHTML = '<div style="text-align:center;padding:1rem;">⏳ Calculating optimal allocation...</div>';
+  
+  try {
+    const resp = await fetch('/api/optimize/allocation', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        capital_usd: capital,
+        strategy: strategy,
+        max_pools: maxPools
+      })
+    });
+    
+    const data = await resp.json();
+    
+    if (data.error) {
+      resultDiv.innerHTML = `<div class="red">${data.error}</div>`;
+      return;
+    }
+    
+    const split = data.profit_split;
+    const recs = data.recommendations;
+    
+    let html = `
+      <div class="allocation-summary" style="margin-top:1rem;padding:1rem;background:var(--card-bg);border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+          <span>Expected APY:</span>
+          <span class="green"><strong>${split.total_expected_apy.toFixed(2)}%</strong></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+          <span>Weighted Risk:</span>
+          <span>${(split.weighted_risk * 100).toFixed(0)}%</span>
+        </div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-top:0.5rem;">${split.reasoning}</div>
+      </div>
+      <div style="margin-top:1rem;">
+        <strong>Recommended Allocations:</strong>
+        <table class="trade-table" style="margin-top:0.5rem;">
+          <thead><tr><th>Pool</th><th>Protocol</th><th>Chain</th><th>Amount</th><th>%</th><th>APY</th><th>Risk</th></tr></thead>
+          <tbody>
+    `;
+    
+    for (const rec of recs) {
+      const riskClass = rec.risk_level === 'low' ? 'green' : rec.risk_level === 'medium' ? 'accent2' : 'red';
+      html += `<tr>
+        <td>${rec.symbol}</td>
+        <td>${rec.protocol}</td>
+        <td>${rec.chain}</td>
+        <td>${fmtUSD(capital * rec.allocation_pct / 100)}</td>
+        <td>${rec.allocation_pct.toFixed(1)}%</td>
+        <td class="green">${rec.expected_apy.toFixed(1)}%</td>
+        <td class="${riskClass}">${rec.risk_level}</td>
+      </tr>`;
+    }
+    
+    html += '</tbody></table></div>';
+    
+    if (resultDiv) resultDiv.innerHTML = html;
+    
+  } catch(e) {
+    if (resultDiv) resultDiv.innerHTML = '<div class="red">Failed to get allocation</div>';
+  }
+}
+
+function showModal(title, content) {
+  // Remove existing modal
+  const existing = document.getElementById('nexus-modal');
+  if (existing) existing.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'nexus-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>${title}</h3>
+        <button onclick="closeModal()" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">${content}</div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => {
+    if (e.target === modal) closeModal();
+  });
+}
+
+function closeModal() {
+  const modal = document.getElementById('nexus-modal');
+  if (modal) modal.remove();
+}

@@ -159,6 +159,14 @@ class GasOracle:
             "best_gas":         self.best_gas(),
         }
 
+    def get_percentile(self, pct: int) -> float:
+        """
+        Return the *pct*-th percentile of recorded base fees.
+        
+        Public wrapper for percentile calculation.
+        """
+        return self._percentile(pct)
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _percentile(self, pct: int) -> float:
