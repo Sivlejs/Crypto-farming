@@ -166,8 +166,9 @@ class ResourceMonitor:
         
         # Each hash operation uses roughly 80 bytes (header) + overhead
         # Estimate 200 bytes per hash in batch for safety
+        # Use 25% of available memory for batch storage (divide total by 4)
         bytes_per_hash = 200
-        max_batch_by_memory = available_mem // (bytes_per_hash * 4)  # Use 25% of available
+        max_batch_by_memory = available_mem // (bytes_per_hash * 4)
         
         # Performance sweet spot is typically 1000-10000
         if self._is_virtual:
@@ -737,6 +738,7 @@ class CPUMiner:
     def _resource_monitor_loop(self):
         """Background thread to monitor resources and adjust mining parameters."""
         adjustment_interval = 10.0  # Check every 10 seconds
+        throttle_pause_seconds = 5  # Additional pause when CPU is critically overloaded
         
         while self._running:
             time.sleep(adjustment_interval)
@@ -756,7 +758,7 @@ class CPUMiner:
                             "CPU critically high (%.1f%%), pausing mining temporarily",
                             cpu_percent
                         )
-                    time.sleep(5)  # Extra pause
+                    time.sleep(throttle_pause_seconds)
                     continue
                 elif self._paused and cpu_percent < 80:
                     self._paused = False

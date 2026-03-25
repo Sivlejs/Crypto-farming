@@ -1829,10 +1829,9 @@ function onTabChange(tabId) {
   }
 }
 
-// Hook into tab navigation
-const originalNavHandler = document.querySelectorAll('.nav-item');
-originalNavHandler.forEach(item => {
-  const origClick = item.onclick;
+// Hook into tab navigation for mining status refresh
+const navItems = document.querySelectorAll('.nav-item');
+navItems.forEach(item => {
   item.addEventListener('click', function() {
     const tab = this.dataset.tab;
     if (tab) onTabChange(tab);
