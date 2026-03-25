@@ -16,22 +16,35 @@ from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Only consider pools where reward APY is a meaningful portion
-MIN_REWARD_APY = 3.0
-MIN_TVL_USD = 1_000_000
+# Only consider pools where reward APY is a meaningful portion (lowered for realistic markets)
+MIN_REWARD_APY = 1.0
+# Minimum TVL filter (lowered to find more opportunities across chains)
+MIN_TVL_USD = 100_000
 
 # Low-impermanent-loss pairs (stable or tightly correlated)
 LOW_IL_KEYWORDS = {
     "usdc", "usdt", "dai", "busd", "frax", "mim",
     "wbtc-eth", "eth-steth", "matic-stmatic",
+    "weth-steth", "usdc-usdt", "dai-usdc",
 }
 
+# Chain name aliases from DeFi Llama -> our chain keys
+# Extended to support all major chains returned by DeFi Llama API
 CHAIN_ALIASES = {
     "ethereum": "ethereum",
     "bsc": "bsc",
     "binance": "bsc",
     "polygon": "polygon",
     "matic": "polygon",
+    "arbitrum": "arbitrum",
+    "optimism": "optimism",
+    "base": "base",
+    "avalanche": "avalanche",
+    "avax": "avalanche",
+    "fantom": "fantom",
+    "ftm": "fantom",
+    "gnosis": "gnosis",
+    "xdai": "gnosis",
 }
 
 

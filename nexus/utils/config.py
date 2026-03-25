@@ -43,8 +43,8 @@ class Config:
     # API keys
     COINGECKO_API_KEY: str = os.getenv("COINGECKO_API_KEY", "")
 
-    # Trading limits
-    MIN_PROFIT_USD: float = _float("MIN_PROFIT_USD", 5.0)
+    # Trading limits (lowered for realistic opportunity detection)
+    MIN_PROFIT_USD: float = _float("MIN_PROFIT_USD", 1.0)
     MAX_GAS_GWEI: float = _float("MAX_GAS_GWEI", 50.0)
     SLIPPAGE_PERCENT: float = _float("SLIPPAGE_PERCENT", 0.5)
     MAX_TRADE_USD: float = _float("MAX_TRADE_USD", 500.0)
@@ -115,11 +115,15 @@ class Config:
     CHAIN_OPTIMISM: bool = _bool("CHAIN_OPTIMISM", False)
     CHAIN_BASE: bool = _bool("CHAIN_BASE", False)
     CHAIN_AVALANCHE: bool = _bool("CHAIN_AVALANCHE", False)
+    CHAIN_FANTOM: bool = _bool("CHAIN_FANTOM", False)
+    CHAIN_GNOSIS: bool = _bool("CHAIN_GNOSIS", False)
 
     ARBITRUM_RPC_URL: str = os.getenv("ARBITRUM_RPC_URL", "https://arb1.arbitrum.io/rpc")
     OPTIMISM_RPC_URL: str = os.getenv("OPTIMISM_RPC_URL", "https://mainnet.optimism.io")
     BASE_RPC_URL: str = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
     AVALANCHE_RPC_URL: str = os.getenv("AVALANCHE_RPC_URL", "https://api.avax.network/ext/bc/C/rpc")
+    FANTOM_RPC_URL: str = os.getenv("FANTOM_RPC_URL", "https://rpc.ftm.tools/")
+    GNOSIS_RPC_URL: str = os.getenv("GNOSIS_RPC_URL", "https://rpc.gnosischain.com/")
 
     # ── OpenAI / Chat settings ────────────────────────────────
     # Used by NexusChat for intelligent conversational responses
@@ -173,6 +177,8 @@ class Config:
                 "optimism":  cls.CHAIN_OPTIMISM,
                 "base":      cls.CHAIN_BASE,
                 "avalanche": cls.CHAIN_AVALANCHE,
+                "fantom":    cls.CHAIN_FANTOM,
+                "gnosis":    cls.CHAIN_GNOSIS,
             },
             "wallet_configured": cls.is_configured(),
             "openai": {

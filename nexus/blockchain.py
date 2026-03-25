@@ -72,6 +72,20 @@ CHAIN_INFO: Dict[str, dict] = {
         "explorer": "https://snowtrace.io",
         "poa": False,
     },
+    "fantom": {
+        "chain_id": 250,
+        "name": "Fantom Opera",
+        "symbol": "FTM",
+        "explorer": "https://ftmscan.com",
+        "poa": False,
+    },
+    "gnosis": {
+        "chain_id": 100,
+        "name": "Gnosis Chain",
+        "symbol": "xDAI",
+        "explorer": "https://gnosisscan.io",
+        "poa": True,
+    },
 }
 
 # Primary + fallback RPC endpoints per chain
@@ -118,6 +132,18 @@ _RPC_FALLBACKS: Dict[str, List[str]] = {
         "https://rpc.ankr.com/avalanche",
         "https://avalanche.public-rpc.com",
     ],
+    "fantom": [
+        Config.FANTOM_RPC_URL,
+        "https://rpc.ftm.tools/",
+        "https://rpc.ankr.com/fantom",
+        "https://fantom.publicnode.com",
+    ],
+    "gnosis": [
+        Config.GNOSIS_RPC_URL,
+        "https://rpc.gnosischain.com/",
+        "https://rpc.ankr.com/gnosis",
+        "https://gnosis.publicnode.com",
+    ],
 }
 
 _ENABLED_MAP = {
@@ -128,6 +154,8 @@ _ENABLED_MAP = {
     "optimism":  Config.CHAIN_OPTIMISM,
     "base":      Config.CHAIN_BASE,
     "avalanche": Config.CHAIN_AVALANCHE,
+    "fantom":    Config.CHAIN_FANTOM,
+    "gnosis":    Config.CHAIN_GNOSIS,
 }
 
 # Block poll interval when WebSocket is not available
