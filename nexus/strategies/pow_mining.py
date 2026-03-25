@@ -7,6 +7,13 @@ Implements Proof-of-Work cryptocurrency mining similar to dedicated mining machi
 - CPU mining implementation (GPU requires external miners like CGMiner/XMRig)
 - Automatic difficulty adjustment
 - Mining stats tracking and profitability estimation
+
+Virtual Server Optimizations:
+- Adaptive thread management based on CPU load
+- Memory-efficient mining modes for cloud environments
+- Dynamic batch sizing for optimal performance
+- Auto-detection of optimal mining parameters
+- Resource throttling to prevent provider throttling/termination
 """
 from __future__ import annotations
 
@@ -25,6 +32,198 @@ from nexus.strategies.base import BaseStrategy, Opportunity, OpportunityType
 from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Virtual Server Resource Monitor
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ResourceMonitor:
+    """
+    Monitor system resources for adaptive mining on virtual servers.
+    
+    Key features:
+    - CPU load monitoring to prevent provider throttling
+    - Memory usage tracking for memory-hard algorithms
+    - Automatic detection of virtual server environment
+    - Resource-aware parameter adjustment
+    """
+    
+    def __init__(self):
+        self._cpu_count = multiprocessing.cpu_count()
+        self._last_cpu_check = 0.0
+        self._last_cpu_percent = 0.0
+        self._is_virtual = self._detect_virtual_environment()
+        self._memory_total = self._get_total_memory()
+        self._sample_interval = 5.0  # Seconds between samples
+    
+    def _detect_virtual_environment(self) -> bool:
+        """Detect if running in a virtual/cloud environment."""
+        indicators = [
+            os.path.exists('/sys/hypervisor/type'),
+            os.path.exists('/proc/xen'),
+            os.path.exists('/.dockerenv'),
+            os.getenv('KUBERNETES_SERVICE_HOST') is not None,
+            os.getenv('RENDER') is not None,  # Render.com
+            os.getenv('RAILWAY_ENVIRONMENT') is not None,  # Railway
+            os.getenv('HEROKU_APP_NAME') is not None,  # Heroku
+            os.getenv('DYNO') is not None,  # Heroku dyno
+            os.getenv('FLY_APP_NAME') is not None,  # Fly.io
+            os.getenv('VERCEL') is not None,  # Vercel
+        ]
+        return any(indicators)
+    
+    def _get_total_memory(self) -> int:
+        """Get total system memory in bytes."""
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemTotal:'):
+                        return int(line.split()[1]) * 1024  # KB to bytes
+        except Exception:
+            pass
+        return 4 * 1024 * 1024 * 1024  # Default 4GB
+    
+    def get_cpu_percent(self) -> float:
+        """Get current CPU usage percentage (0-100)."""
+        now = time.time()
+        if now - self._last_cpu_check < self._sample_interval:
+            return self._last_cpu_percent
+        
+        try:
+            # Read from /proc/stat for accurate CPU measurement
+            with open('/proc/stat', 'r') as f:
+                line = f.readline()
+            
+            fields = line.split()[1:]  # Skip 'cpu' label
+            idle = int(fields[3])
+            total = sum(int(x) for x in fields[:8])
+            
+            if hasattr(self, '_prev_idle') and hasattr(self, '_prev_total'):
+                idle_delta = idle - self._prev_idle
+                total_delta = total - self._prev_total
+                if total_delta > 0:
+                    self._last_cpu_percent = 100.0 * (1.0 - idle_delta / total_delta)
+            
+            self._prev_idle = idle
+            self._prev_total = total
+            self._last_cpu_check = now
+            
+        except Exception:
+            self._last_cpu_percent = 50.0  # Default if can't read
+        
+        return self._last_cpu_percent
+    
+    def get_available_memory(self) -> int:
+        """Get available memory in bytes."""
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemAvailable:'):
+                        return int(line.split()[1]) * 1024
+        except Exception:
+            pass
+        return self._memory_total // 2  # Default 50% of total
+    
+    def get_optimal_threads(self, max_cpu_percent: float = 80.0) -> int:
+        """
+        Calculate optimal thread count based on current load.
+        
+        For virtual servers, we want to stay under CPU quotas to avoid:
+        - Being throttled by the provider
+        - Triggering cost overruns
+        - Getting the container killed
+        
+        Args:
+            max_cpu_percent: Target maximum CPU usage
+        
+        Returns:
+            Optimal number of mining threads
+        """
+        current_cpu = self.get_cpu_percent()
+        headroom = max(0, max_cpu_percent - current_cpu)
+        
+        # Calculate threads based on available headroom
+        # Each thread at 100% intensity uses ~100% of one core
+        available_threads = int(headroom / 100.0 * self._cpu_count)
+        
+        # For virtual servers, cap at 75% of cores to leave room for system
+        if self._is_virtual:
+            max_threads = max(1, int(self._cpu_count * 0.75))
+        else:
+            max_threads = self._cpu_count
+        
+        return max(1, min(available_threads, max_threads))
+    
+    def get_optimal_batch_size(self) -> int:
+        """
+        Calculate optimal batch size based on available resources.
+        
+        Larger batches are more efficient but use more memory.
+        Virtual servers often have limited memory.
+        """
+        available_mem = self.get_available_memory()
+        
+        # Each hash operation uses roughly 80 bytes (header) + overhead
+        # Estimate 200 bytes per hash in batch for safety
+        # Use 25% of available memory for batch storage (divide total by 4)
+        bytes_per_hash = 200
+        max_batch_by_memory = available_mem // (bytes_per_hash * 4)
+        
+        # Performance sweet spot is typically 1000-10000
+        if self._is_virtual:
+            # Smaller batches for virtual servers (better responsiveness)
+            return max(100, min(2000, max_batch_by_memory))
+        else:
+            return max(1000, min(10000, max_batch_by_memory))
+    
+    def get_recommended_intensity(self) -> int:
+        """
+        Get recommended mining intensity for current environment.
+        
+        Returns intensity 1-100 (percent).
+        """
+        cpu_percent = self.get_cpu_percent()
+        
+        if self._is_virtual:
+            # Virtual servers: stay conservative to avoid throttling
+            if cpu_percent > 70:
+                return 30  # Low intensity when system is busy
+            elif cpu_percent > 50:
+                return 50  # Medium intensity
+            else:
+                return 70  # Higher intensity when idle
+        else:
+            # Physical hardware: can be more aggressive
+            if cpu_percent > 80:
+                return 50
+            else:
+                return 80
+    
+    def stats(self) -> dict:
+        """Get resource monitoring stats."""
+        return {
+            "cpu_count": self._cpu_count,
+            "cpu_percent": round(self.get_cpu_percent(), 1),
+            "memory_total_gb": round(self._memory_total / (1024**3), 2),
+            "memory_available_gb": round(self.get_available_memory() / (1024**3), 2),
+            "is_virtual_server": self._is_virtual,
+            "optimal_threads": self.get_optimal_threads(),
+            "optimal_batch_size": self.get_optimal_batch_size(),
+            "recommended_intensity": self.get_recommended_intensity(),
+        }
+
+
+# Global resource monitor instance
+_resource_monitor: Optional[ResourceMonitor] = None
+
+
+def get_resource_monitor() -> ResourceMonitor:
+    """Get the singleton resource monitor instance."""
+    global _resource_monitor
+    if _resource_monitor is None:
+        _resource_monitor = ResourceMonitor()
+    return _resource_monitor
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -431,7 +630,7 @@ class StratumClient:
 
 class CPUMiner:
     """
-    CPU mining implementation.
+    CPU mining implementation optimized for virtual servers.
     
     Performs hash computation using Python (for demonstration).
     For production mining, use dedicated miners like:
@@ -440,6 +639,12 @@ class CPUMiner:
     - Ethash: Ethminer (obsolete since ETH PoS)
     - RandomX: XMRig
     - KawPow: Kawpowminer
+    
+    Virtual Server Optimizations:
+    - Adaptive thread scaling based on CPU load
+    - Dynamic batch sizing for memory efficiency
+    - Intensity auto-adjustment to prevent throttling
+    - Resource monitoring integration
     """
     
     def __init__(
@@ -448,14 +653,35 @@ class CPUMiner:
         threads: int = 0,
         intensity: int = 50,
         algorithm: str = "sha256",
+        adaptive_mode: bool = True,
+        max_cpu_percent: float = 80.0,
     ):
         self.client = stratum_client
-        self.threads = threads or multiprocessing.cpu_count()
-        self.intensity = max(1, min(100, intensity))
         self.algorithm = algorithm.lower()
+        self._adaptive_mode = adaptive_mode
+        self._max_cpu_percent = max_cpu_percent
+        
+        # Resource monitor for adaptive optimization
+        self._resource_monitor = get_resource_monitor()
+        
+        # Initialize threads/intensity - use adaptive values if not specified
+        if threads == 0 and adaptive_mode:
+            self.threads = self._resource_monitor.get_optimal_threads(max_cpu_percent)
+        else:
+            self.threads = threads or multiprocessing.cpu_count()
+        
+        if intensity == 50 and adaptive_mode:  # Default value means auto-detect
+            self.intensity = self._resource_monitor.get_recommended_intensity()
+        else:
+            self.intensity = max(1, min(100, intensity))
+        
+        # Dynamic batch size
+        self._batch_size = self._resource_monitor.get_optimal_batch_size()
         
         self._running = False
+        self._paused = False  # For dynamic throttling
         self._workers: list[threading.Thread] = []
+        self._resource_thread: Optional[threading.Thread] = None
         
         # Stats per thread
         self._hashes_computed = 0
@@ -463,20 +689,31 @@ class CPUMiner:
         self._start_time = 0.0
         self._last_hashrate_time = 0.0
         self._last_hashes = 0
+        
+        # Adaptive mode stats
+        self._thread_adjustments = 0
+        self._intensity_adjustments = 0
+        self._throttle_events = 0
     
     def start(self):
-        """Start mining workers."""
+        """Start mining workers with adaptive resource management."""
         if self._running:
             return
         
         self._running = True
+        self._paused = False
         self._start_time = time.time()
         self._last_hashrate_time = time.time()
         self._hashes_computed = 0
         self._last_hashes = 0
         
-        logger.info("Starting CPU miner: %d threads, intensity=%d%%, algorithm=%s",
-                   self.threads, self.intensity, self.algorithm)
+        # Log environment info
+        resource_stats = self._resource_monitor.stats()
+        env_type = "virtual server" if resource_stats["is_virtual_server"] else "physical hardware"
+        logger.info(
+            "Starting CPU miner on %s: %d threads, intensity=%d%%, algorithm=%s, batch_size=%d",
+            env_type, self.threads, self.intensity, self.algorithm, self._batch_size
+        )
         
         for i in range(self.threads):
             worker = threading.Thread(
@@ -487,6 +724,76 @@ class CPUMiner:
             )
             worker.start()
             self._workers.append(worker)
+        
+        # Start resource monitoring thread for adaptive mode
+        if self._adaptive_mode:
+            self._resource_thread = threading.Thread(
+                target=self._resource_monitor_loop,
+                daemon=True,
+                name="miner-resource-monitor"
+            )
+            self._resource_thread.start()
+            logger.info("Adaptive resource monitoring enabled (max CPU: %.0f%%)", self._max_cpu_percent)
+    
+    def _resource_monitor_loop(self):
+        """Background thread to monitor resources and adjust mining parameters."""
+        adjustment_interval = 10.0  # Check every 10 seconds
+        throttle_pause_seconds = 5  # Additional pause when CPU is critically overloaded
+        
+        while self._running:
+            time.sleep(adjustment_interval)
+            
+            if not self._running:
+                break
+            
+            try:
+                cpu_percent = self._resource_monitor.get_cpu_percent()
+                
+                # Pause mining if CPU is critically overloaded
+                if cpu_percent > 95:
+                    if not self._paused:
+                        self._paused = True
+                        self._throttle_events += 1
+                        logger.warning(
+                            "CPU critically high (%.1f%%), pausing mining temporarily",
+                            cpu_percent
+                        )
+                    time.sleep(throttle_pause_seconds)
+                    continue
+                elif self._paused and cpu_percent < 80:
+                    self._paused = False
+                    logger.info("CPU load normalized (%.1f%%), resuming mining", cpu_percent)
+                
+                # Adjust intensity based on current load
+                if cpu_percent > self._max_cpu_percent + 10:
+                    # Reduce intensity
+                    new_intensity = max(10, self.intensity - 10)
+                    if new_intensity != self.intensity:
+                        self.intensity = new_intensity
+                        self._intensity_adjustments += 1
+                        logger.info(
+                            "Reducing mining intensity to %d%% (CPU at %.1f%%)",
+                            self.intensity, cpu_percent
+                        )
+                elif cpu_percent < self._max_cpu_percent - 20:
+                    # Increase intensity if we have headroom
+                    new_intensity = min(100, self.intensity + 5)
+                    if new_intensity != self.intensity:
+                        self.intensity = new_intensity
+                        self._intensity_adjustments += 1
+                        logger.debug(
+                            "Increasing mining intensity to %d%% (CPU at %.1f%%)",
+                            self.intensity, cpu_percent
+                        )
+                
+                # Update batch size based on available memory
+                optimal_batch = self._resource_monitor.get_optimal_batch_size()
+                if abs(optimal_batch - self._batch_size) > self._batch_size * 0.2:
+                    self._batch_size = optimal_batch
+                    logger.debug("Adjusted batch size to %d", self._batch_size)
+                    
+            except Exception as e:
+                logger.warning("Resource monitor error: %s", e)
     
     def stop(self):
         """Stop all mining workers."""
@@ -494,7 +801,20 @@ class CPUMiner:
         for worker in self._workers:
             worker.join(timeout=2)
         self._workers.clear()
+        if self._resource_thread:
+            self._resource_thread.join(timeout=2)
+            self._resource_thread = None
         logger.info("CPU miner stopped")
+    
+    def pause(self):
+        """Temporarily pause mining (for manual throttling)."""
+        self._paused = True
+        logger.info("Mining paused")
+    
+    def resume(self):
+        """Resume mining after pause."""
+        self._paused = False
+        logger.info("Mining resumed")
     
     def get_hashrate(self) -> float:
         """Calculate current hashrate (hashes per second)."""
@@ -515,16 +835,27 @@ class CPUMiner:
         """Get miner statistics."""
         uptime = time.time() - self._start_time if self._start_time else 0
         hashrate = self.get_hashrate()
+        resource_stats = self._resource_monitor.stats()
         
         return {
             "running": self._running,
+            "paused": self._paused,
             "threads": self.threads,
             "intensity": self.intensity,
             "algorithm": self.algorithm,
+            "batch_size": self._batch_size,
             "hashrate": hashrate,
             "hashrate_formatted": self._format_hashrate(hashrate),
             "total_hashes": self._hashes_computed,
             "uptime_seconds": round(uptime),
+            # Adaptive mode stats
+            "adaptive_mode": self._adaptive_mode,
+            "max_cpu_percent": self._max_cpu_percent,
+            "thread_adjustments": self._thread_adjustments,
+            "intensity_adjustments": self._intensity_adjustments,
+            "throttle_events": self._throttle_events,
+            # Resource stats
+            "resources": resource_stats,
         }
     
     @staticmethod
@@ -542,14 +873,19 @@ class CPUMiner:
             return f"{hashrate:.2f} H/s"
     
     def _mine_worker(self, thread_id: int):
-        """Mining worker thread."""
+        """Mining worker thread with adaptive resource management."""
         # Each thread uses different extranonce2 range
         extranonce2_base = thread_id * (2 ** 24)  # Split nonce space
         
-        # Intensity affects sleep time between batches
-        sleep_time = (100 - self.intensity) / 1000.0  # 0ms to 100ms
-        
         while self._running:
+            # Handle pause state
+            if self._paused:
+                time.sleep(0.5)
+                continue
+            
+            # Dynamic sleep time based on current intensity (may change during runtime)
+            sleep_time = (100 - self.intensity) / 1000.0  # 0ms to 100ms
+            
             job = self.client.get_job()
             if not job:
                 time.sleep(0.1)
@@ -568,17 +904,19 @@ class CPUMiner:
         extranonce2_base: int,
         sleep_time: float,
     ):
-        """Mine a single job."""
+        """Mine a single job with adaptive batch sizing."""
         # Build coinbase transaction
         extranonce2_counter = extranonce2_base
         nonce = 0
-        batch_size = 1000  # Hashes per batch
         
-        while self._running:
+        while self._running and not self._paused:
             # Check if job changed
             current_job = self.client.get_job()
             if not current_job or current_job.job_id != job.job_id:
                 break
+            
+            # Use dynamic batch size (can change during runtime)
+            batch_size = self._batch_size
             
             # Build extranonce2
             extranonce2 = format(extranonce2_counter, f'0{job.extranonce2_size * 2}x')
@@ -660,7 +998,7 @@ class CPUMiner:
 
 class PoWMiningStrategy(BaseStrategy):
     """
-    Proof-of-Work mining strategy.
+    Proof-of-Work mining strategy optimized for virtual servers.
     
     Connects to mining pools and performs CPU mining for cryptocurrencies:
     - Bitcoin (SHA-256)
@@ -670,6 +1008,12 @@ class PoWMiningStrategy(BaseStrategy):
     
     This strategy runs continuously and generates "mining opportunities"
     that represent mining session status and estimated earnings.
+    
+    Virtual Server Features:
+    - Adaptive thread/intensity management to prevent throttling
+    - Memory-efficient batch processing
+    - Auto-detection of cloud environment characteristics
+    - Resource monitoring and automatic adjustment
     """
     
     name = "pow_mining"
@@ -687,6 +1031,9 @@ class PoWMiningStrategy(BaseStrategy):
         self._estimated_earnings_usd = 0.0
         self._last_share_time = 0.0
         
+        # Resource monitor for environment detection
+        self._resource_monitor = get_resource_monitor()
+        
         # Initialize if configured
         if self._is_configured():
             self._initialize()
@@ -698,8 +1045,17 @@ class PoWMiningStrategy(BaseStrategy):
             self.config.MINING_POOL_USER
         )
     
+    def _get_adaptive_mode(self) -> bool:
+        """Determine if adaptive mode should be enabled."""
+        # Enable adaptive mode by default on virtual servers
+        return getattr(self.config, 'MINING_ADAPTIVE_MODE', True)
+    
+    def _get_max_cpu_percent(self) -> float:
+        """Get maximum CPU usage percentage."""
+        return getattr(self.config, 'MINING_MAX_CPU_PERCENT', 80.0)
+    
     def _initialize(self):
-        """Initialize stratum client and miner."""
+        """Initialize stratum client and miner with adaptive optimization."""
         with self._lock:
             if self._stratum:
                 return  # Already initialized
@@ -716,7 +1072,19 @@ class PoWMiningStrategy(BaseStrategy):
                 threads=self.config.MINING_THREADS,
                 intensity=self.config.MINING_INTENSITY,
                 algorithm=self.config.MINING_ALGORITHM,
+                adaptive_mode=self._get_adaptive_mode(),
+                max_cpu_percent=self._get_max_cpu_percent(),
             )
+            
+            # Log environment info
+            resource_stats = self._resource_monitor.stats()
+            if resource_stats["is_virtual_server"]:
+                logger.info(
+                    "Mining initialized on virtual server: %d CPUs, %.1fGB RAM, adaptive mode=%s",
+                    resource_stats["cpu_count"],
+                    resource_stats["memory_total_gb"],
+                    self._get_adaptive_mode()
+                )
     
     def start_mining(self) -> bool:
         """Start the mining session."""
@@ -835,11 +1203,33 @@ class PoWMiningStrategy(BaseStrategy):
         
         return opportunities
     
+    def pause_mining(self):
+        """Temporarily pause mining (keeps connection but stops hashing)."""
+        if self._miner:
+            self._miner.pause()
+    
+    def resume_mining(self):
+        """Resume mining after pause."""
+        if self._miner:
+            self._miner.resume()
+    
+    def update_intensity(self, intensity: int):
+        """Update mining intensity (1-100)."""
+        if self._miner:
+            self._miner.intensity = max(1, min(100, intensity))
+            logger.info("Mining intensity updated to %d%%", self._miner.intensity)
+    
+    def update_threads(self, threads: int):
+        """Update number of mining threads (requires restart to take effect)."""
+        if threads > 0 and self._miner:
+            logger.info("Thread count update queued (%d threads) - requires restart", threads)
+    
     def status(self) -> dict:
-        """Get mining strategy status."""
+        """Get mining strategy status with virtual server optimization details."""
         with self._lock:
             stratum_stats = self._stratum.stats() if self._stratum else {}
             miner_stats = self._miner.stats() if self._miner else {}
+            resource_stats = self._resource_monitor.stats()
             
             return {
                 "name": self.name,
@@ -854,4 +1244,29 @@ class PoWMiningStrategy(BaseStrategy):
                     time.time() - self._session_start
                     if self._session_start else 0
                 ),
+                # Virtual server optimization info
+                "environment": {
+                    "is_virtual_server": resource_stats["is_virtual_server"],
+                    "cpu_count": resource_stats["cpu_count"],
+                    "cpu_percent": resource_stats["cpu_percent"],
+                    "memory_total_gb": resource_stats["memory_total_gb"],
+                    "memory_available_gb": resource_stats["memory_available_gb"],
+                    "adaptive_mode": self._get_adaptive_mode(),
+                    "max_cpu_percent": self._get_max_cpu_percent(),
+                },
             }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Module-level helper functions for external access
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_mining_environment_info() -> dict:
+    """
+    Get information about the current mining environment.
+    
+    Useful for displaying environment info in the dashboard
+    without needing to start mining.
+    """
+    monitor = get_resource_monitor()
+    return monitor.stats()
