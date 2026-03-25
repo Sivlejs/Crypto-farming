@@ -13,6 +13,22 @@ CAPITAL = 10_000
 MIN_TVL = 500_000
 MIN_APY = 5.0
 
+# Chain name aliases
+CHAIN_ALIASES = {
+    "ethereum": "ethereum",
+    "bsc": "bsc",
+    "binance": "bsc",
+    "polygon": "polygon",
+    "matic": "polygon",
+    "arbitrum": "arbitrum",
+    "optimism": "optimism",
+    "base": "base",
+    "avalanche": "avalanche",
+    "avax": "avalanche",
+    "fantom": "fantom",
+    "gnosis": "gnosis",
+}
+
 class VaultOptimizerStrategy(BaseStrategy):
     name = "vault_optimizer"
 
@@ -26,31 +42,74 @@ class VaultOptimizerStrategy(BaseStrategy):
             logger.debug("vault_optimizer llama fetch: %s", e)
             return []
 
-        filtered = [
-            p for p in pools
-            if p.get("project","") in TARGET_PROJECTS
-            and float(p.get("tvlUsd", 0)) >= MIN_TVL
-            and float(p.get("apy", 0) or 0) >= MIN_APY
-        ]
-        filtered.sort(key=lambda p: float(p.get("apy", 0) or 0), reverse=True)
+        connected = set(self.bm.connected_chains()) if self.bm else set()
+
+        filtered = []
+        for p in pools:
+            if p.get("project","") not in TARGET_PROJECTS:
+                continue
+            
+            tvl = float(p.get("tvlUsd", 0) or 0)
+            if tvl < MIN_TVL:
+                continue
+            
+            # Compute APY properly: use explicit value or sum of base + reward
+            apy_base = float(p.get("apyBase", 0) or 0)
+            apy_reward = float(p.get("apyReward", 0) or 0)
+            apy = p.get("apy")
+            if apy is not None and apy > 0:
+                apy = float(apy)
+            else:
+                apy = apy_base + apy_reward
+            
+            if apy < MIN_APY:
+                continue
+            
+            # Store computed APY for sorting
+            p["_computed_apy"] = apy
+            filtered.append(p)
+        
+        filtered.sort(key=lambda p: p.get("_computed_apy", 0), reverse=True)
 
         for pool in filtered[:8]:
             try:
-                apy       = float(pool.get("apy", 0) or 0)
+                apy = pool.get("_computed_apy", 0)
+                apy_base = float(pool.get("apyBase", 0) or 0)
+                apy_reward = float(pool.get("apyReward", 0) or 0)
+                tvl = float(pool.get("tvlUsd", 0) or 0)
+                
                 daily_pct = apy / 365 / 100
-                profit    = CAPITAL * daily_pct
+                profit = CAPITAL * daily_pct
                 if profit < Config.MIN_PROFIT_USD / 2:
                     continue
-                chain = pool.get("chain","").lower()
+                
+                raw_chain = pool.get("chain","").lower()
+                chain = CHAIN_ALIASES.get(raw_chain, raw_chain) or "ethereum"
+                chain_connected = chain in connected
+                
+                # Adjust confidence based on connection status
+                confidence = 0.72
+                if not chain_connected:
+                    confidence *= 0.5
+                
+                desc_prefix = "" if chain_connected else "[Not Connected] "
                 opps.append(self._make_opportunity(
                     opp_type=OpportunityType.YIELD_FARMING,
-                    chain=chain or "ethereum",
-                    description=f"🏦 {pool.get('project')} {pool.get('symbol','')}: {apy:.1f}% APY",
+                    chain=chain,
+                    description=f"{desc_prefix}🏦 {pool.get('project')} {pool.get('symbol','')}: {apy:.1f}% APY",
                     profit_usd=profit,
-                    confidence=0.72,
-                    details={"strategy":"vault_optimizer","project":pool.get("project"),
-                             "symbol":pool.get("symbol"),"apy":apy,"tvl":pool.get("tvlUsd"),
-                             "pool_id":pool.get("pool","")},
+                    confidence=confidence,
+                    details={
+                        "strategy": "vault_optimizer",
+                        "project": pool.get("project"),
+                        "symbol": pool.get("symbol"),
+                        "apy": apy,
+                        "apy_base": apy_base,
+                        "apy_reward": apy_reward,
+                        "tvl": tvl,
+                        "pool_id": pool.get("pool",""),
+                        "chain_connected": chain_connected,
+                    },
                 ))
             except Exception:
                 continue

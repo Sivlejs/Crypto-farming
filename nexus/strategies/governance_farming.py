@@ -12,6 +12,22 @@ GOV_PROJECTS = {"convex-finance","curve-dex","aura","balancer","frax","sushi","y
 CAPITAL   = 5_000
 MIN_APY   = 8.0
 
+# Chain name aliases
+CHAIN_ALIASES = {
+    "ethereum": "ethereum",
+    "bsc": "bsc",
+    "binance": "bsc",
+    "polygon": "polygon",
+    "matic": "polygon",
+    "arbitrum": "arbitrum",
+    "optimism": "optimism",
+    "base": "base",
+    "avalanche": "avalanche",
+    "avax": "avalanche",
+    "fantom": "fantom",
+    "gnosis": "gnosis",
+}
+
 class GovernanceFarmingStrategy(BaseStrategy):
     name = "governance_farming"
 
@@ -25,12 +41,23 @@ class GovernanceFarmingStrategy(BaseStrategy):
             logger.debug("gov_farming: %s", e)
             return []
 
-        gov_pools = [
-            p for p in pools
-            if p.get("project","") in GOV_PROJECTS
-            and float(p.get("apyReward", 0) or 0) >= MIN_APY
-            and float(p.get("tvlUsd", 0)) >= 100_000
-        ]
+        connected = set(self.bm.connected_chains()) if self.bm else set()
+
+        gov_pools = []
+        for p in pools:
+            if p.get("project","") not in GOV_PROJECTS:
+                continue
+            
+            # Compute APYs properly
+            base_apy = float(p.get("apyBase", 0) or 0)
+            reward_apy = float(p.get("apyReward", 0) or 0)
+            tvl = float(p.get("tvlUsd", 0) or 0)
+            
+            if reward_apy < MIN_APY or tvl < 100_000:
+                continue
+            
+            gov_pools.append(p)
+        
         gov_pools.sort(key=lambda p: float(p.get("apyReward", 0) or 0), reverse=True)
 
         for pool in gov_pools[:6]:
@@ -41,16 +68,32 @@ class GovernanceFarmingStrategy(BaseStrategy):
                 daily      = CAPITAL * total_apy / 100 / 365
                 if daily < Config.MIN_PROFIT_USD / 5:
                     continue
-                chain = pool.get("chain","").lower()
+                
+                raw_chain = pool.get("chain","").lower()
+                chain = CHAIN_ALIASES.get(raw_chain, raw_chain) or "ethereum"
+                chain_connected = chain in connected
+                
+                # Adjust confidence based on connection status
+                confidence = 0.68
+                if not chain_connected:
+                    confidence *= 0.5
+                
+                desc_prefix = "" if chain_connected else "[Not Connected] "
                 opps.append(self._make_opportunity(
                     opp_type=OpportunityType.YIELD_FARMING,
-                    chain=chain or "ethereum",
-                    description=f"🗳 {pool.get('project')} {pool.get('symbol','')}: {total_apy:.1f}% APY ({reward_apy:.1f}% gov rewards)",
+                    chain=chain,
+                    description=f"{desc_prefix}🗳 {pool.get('project')} {pool.get('symbol','')}: {total_apy:.1f}% APY ({reward_apy:.1f}% gov rewards)",
                     profit_usd=daily,
-                    confidence=0.68,
-                    details={"strategy":"governance_farming","project":pool.get("project"),
-                             "symbol":pool.get("symbol"),"base_apy":base_apy,
-                             "reward_apy":reward_apy,"total_apy":total_apy},
+                    confidence=confidence,
+                    details={
+                        "strategy": "governance_farming",
+                        "project": pool.get("project"),
+                        "symbol": pool.get("symbol"),
+                        "base_apy": base_apy,
+                        "reward_apy": reward_apy,
+                        "total_apy": total_apy,
+                        "chain_connected": chain_connected,
+                    },
                 ))
             except Exception:
                 continue

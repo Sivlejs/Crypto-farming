@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import requests
 
-from nexus.protocols.pool_sources import get_pool_fetcher, PoolData, MIN_TVL_USD
+from nexus.protocols.pool_sources import get_pool_fetcher, PoolData, MIN_TVL_USD, CHAIN_ALIASES
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -466,8 +466,10 @@ class PoolAnalyzer:
             new_pools = {}
 
             for p in data:
-                chain = (p.get("chain") or "").lower()
-                if chain not in CHAIN_RISK_TIERS:
+                # Normalize chain name using the same aliases as pool_sources
+                raw_chain = (p.get("chain") or "").lower().strip()
+                chain = CHAIN_ALIASES.get(raw_chain)
+                if not chain or chain not in CHAIN_RISK_TIERS:
                     continue
 
                 tvl = float(p.get("tvlUsd", 0) or 0)
