@@ -1,19 +1,26 @@
 """
 PoW Mining Strategy for Nexus AI.
 
-Implements Proof-of-Work cryptocurrency mining similar to dedicated mining machines:
+Implements Proof-of-Work cryptocurrency mining competitive with dedicated hardware:
 - Connects to mining pools via Stratum protocol
 - Supports multiple algorithms: SHA-256, Scrypt, Ethash, RandomX, KawPow
-- CPU mining implementation (GPU requires external miners like CGMiner/XMRig)
+- CPU mining with built-in implementation
+- GPU mining via OpenCL/CUDA detection and external miner integration
+- External miner support: XMRig, T-Rex, lolMiner, GMiner, BzMiner
+- Mining pool failover for high availability
+- Automatic profit switching to most profitable coin
+- Hardware monitoring (temp, power, hashrate per device)
 - Automatic difficulty adjustment
 - Mining stats tracking and profitability estimation
 
-Virtual Server Optimizations:
-- Adaptive thread management based on CPU load
+Virtual Server & Cloud GPU Optimizations:
+- Adaptive thread/intensity management based on CPU/GPU load
 - Memory-efficient mining modes for cloud environments
 - Dynamic batch sizing for optimal performance
 - Auto-detection of optimal mining parameters
 - Resource throttling to prevent provider throttling/termination
+- Multi-GPU support for cloud GPU instances (AWS, GCP, Azure)
+- External miner auto-detection and configuration
 """
 from __future__ import annotations
 
@@ -30,6 +37,59 @@ from typing import Any, Callable, Optional
 
 from nexus.strategies.base import BaseStrategy, Opportunity, OpportunityType
 from nexus.utils.logger import get_logger
+
+# Import GPU mining components
+try:
+    from nexus.strategies.gpu_mining import (
+        GPUDetector,
+        GPUDevice,
+        GPUVendor,
+        MiningAlgorithm,
+        ExternalMinerManager,
+        ExternalMinerConfig,
+        ExternalMinerType,
+        PoolFailoverManager,
+        ProfitSwitcher,
+        get_gpu_detector,
+        get_miner_manager,
+        get_gpu_mining_info,
+    )
+    GPU_MINING_AVAILABLE = True
+except ImportError:
+    GPU_MINING_AVAILABLE = False
+
+# Import GPU optimizer for maximum efficiency
+try:
+    from nexus.strategies.gpu_optimizer import (
+        GPUOptimizer,
+        HashrateTuner,
+        MultiGPUOrchestrator,
+        GPUMiningProfile,
+        GPU_MINING_PROFILES,
+        get_gpu_optimizer,
+        get_hashrate_tuner,
+        get_multi_gpu_orchestrator,
+        get_optimal_settings_for_gpu,
+        get_all_gpu_profiles,
+    )
+    GPU_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    GPU_OPTIMIZER_AVAILABLE = False
+
+# Import AI mining optimizer for intelligent optimization
+try:
+    from nexus.strategies.ai_mining_optimizer import (
+        AIMiningOptimizer,
+        MiningSnapshot,
+        MiningDecision,
+        OptimizationResult,
+        get_ai_mining_optimizer,
+        create_mining_snapshot,
+    )
+    AI_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    AI_OPTIMIZER_AVAILABLE = False
+
 
 logger = get_logger(__name__)
 
@@ -998,21 +1058,32 @@ class CPUMiner:
 
 class PoWMiningStrategy(BaseStrategy):
     """
-    Proof-of-Work mining strategy optimized for virtual servers.
+    Proof-of-Work mining strategy optimized for virtual servers and GPU instances.
     
-    Connects to mining pools and performs CPU mining for cryptocurrencies:
+    Supports both CPU and GPU mining to compete with dedicated hardware:
+    
+    CPU Mining (built-in):
     - Bitcoin (SHA-256)
     - Litecoin/Dogecoin (Scrypt)
-    - Monero (RandomX) - requires external miner
-    - Ravencoin (KawPow) - requires external miner
     
-    This strategy runs continuously and generates "mining opportunities"
-    that represent mining session status and estimated earnings.
+    GPU Mining (via external miners):
+    - Ethereum Classic (Etchash)
+    - Ravencoin (KawPow)
+    - Ergo (Autolykos2)
+    - Kaspa (kHeavyHash)
+    - Monero (RandomX)
     
-    Virtual Server Features:
+    Hardware Competitive Features:
+    - Multi-GPU support with per-device monitoring
+    - External miner integration (T-Rex, lolMiner, XMRig, GMiner)
+    - Mining pool failover for high availability
+    - Automatic profit switching to most profitable coin
+    - Hardware monitoring (temp, power, hashrate)
+    
+    Virtual Server & Cloud GPU Features:
     - Adaptive thread/intensity management to prevent throttling
     - Memory-efficient batch processing
-    - Auto-detection of cloud environment characteristics
+    - Auto-detection of cloud environment (AWS, GCP, Azure GPU instances)
     - Resource monitoring and automatic adjustment
     """
     
@@ -1034,9 +1105,109 @@ class PoWMiningStrategy(BaseStrategy):
         # Resource monitor for environment detection
         self._resource_monitor = get_resource_monitor()
         
+        # GPU mining components (if available)
+        self._gpu_detector: Optional["GPUDetector"] = None
+        self._external_miner: Optional["ExternalMinerManager"] = None
+        self._pool_failover: Optional["PoolFailoverManager"] = None
+        self._profit_switcher: Optional["ProfitSwitcher"] = None
+        self._gpu_mining_active = False
+        self._current_mining_coin = ""
+        
+        # GPU optimizer for maximum efficiency
+        self._gpu_optimizer: Optional["GPUOptimizer"] = None
+        self._multi_gpu_orchestrator: Optional["MultiGPUOrchestrator"] = None
+        
+        # AI optimizer for intelligent optimization
+        self._ai_optimizer: Optional["AIMiningOptimizer"] = None
+        self._ai_optimization_enabled = getattr(self.config, 'MINING_AI_OPTIMIZATION', True)
+        self._ai_optimization_thread: Optional[threading.Thread] = None
+        self._last_ai_optimization: float = 0.0
+        self._last_snapshot: Optional["MiningSnapshot"] = None
+        
+        # Initialize GPU mining if module available
+        if GPU_MINING_AVAILABLE:
+            self._init_gpu_mining()
+        
+        # Initialize GPU optimizer if available
+        if GPU_OPTIMIZER_AVAILABLE:
+            self._init_gpu_optimizer()
+        
+        # Initialize AI optimizer if available
+        if AI_OPTIMIZER_AVAILABLE:
+            self._init_ai_optimizer()
+        
         # Initialize if configured
         if self._is_configured():
             self._initialize()
+    
+    def _init_gpu_optimizer(self):
+        """Initialize GPU optimizer for maximum efficiency."""
+        try:
+            self._gpu_optimizer = get_gpu_optimizer()
+            self._multi_gpu_orchestrator = get_multi_gpu_orchestrator()
+            logger.info("GPU optimizer initialized")
+            
+            # Apply optimal profiles to detected GPUs
+            if self._gpu_detector:
+                devices = self._gpu_detector.detect_devices()
+                for dev in devices:
+                    profile = self._gpu_optimizer.get_profile_for_gpu(dev.name, dev.memory_mb)
+                    self._gpu_optimizer.apply_profile(dev.device_id, profile)
+                    logger.info("Applied optimization profile for GPU %d: %s", dev.device_id, dev.name)
+                    
+        except Exception as e:
+            logger.warning("Failed to initialize GPU optimizer: %s", e)
+    
+    def _init_ai_optimizer(self):
+        """Initialize AI mining optimizer."""
+        try:
+            self._ai_optimizer = get_ai_mining_optimizer()
+            logger.info("AI mining optimizer initialized - learning from mining performance")
+        except Exception as e:
+            logger.warning("Failed to initialize AI optimizer: %s", e)
+    
+    def _init_gpu_mining(self):
+        """Initialize GPU mining components."""
+        try:
+            self._gpu_detector = get_gpu_detector()
+            self._external_miner = get_miner_manager()
+            self._pool_failover = PoolFailoverManager()
+            
+            # Initialize profit switcher with config values
+            hashrate_mhs = getattr(self.config, 'MINING_EXPECTED_HASHRATE_MHS', 30.0)
+            power_watts = getattr(self.config, 'MINING_GPU_POWER_WATTS', 120.0)
+            electricity_cost = getattr(self.config, 'MINING_ELECTRICITY_COST_KWH', 0.10)
+            
+            self._profit_switcher = ProfitSwitcher(
+                hashrate_mhs=hashrate_mhs,
+                power_watts=power_watts,
+                electricity_cost_kwh=electricity_cost,
+            )
+            
+            # Detect GPUs
+            devices = self._gpu_detector.detect_devices()
+            if devices:
+                logger.info("GPU mining available: %d device(s) detected", len(devices))
+                for dev in devices:
+                    logger.info("  [%d] %s - %d MB VRAM", dev.device_id, dev.name, dev.memory_mb)
+            
+            # Add backup pools if configured
+            backup_pools = getattr(self.config, 'MINING_BACKUP_POOLS', '')
+            if backup_pools:
+                for i, pool_url in enumerate(backup_pools.split(',')):
+                    pool_url = pool_url.strip()
+                    if pool_url:
+                        self._pool_failover.add_pool(
+                            url=pool_url,
+                            username=self.config.MINING_POOL_USER,
+                            password=self.config.MINING_POOL_PASSWORD,
+                            algorithm=self.config.MINING_ALGORITHM,
+                            priority=i + 1,
+                            is_backup=True
+                        )
+                        
+        except Exception as e:
+            logger.warning("Failed to initialize GPU mining: %s", e)
     
     def _is_configured(self) -> bool:
         """Check if mining is configured."""
@@ -1054,18 +1225,82 @@ class PoWMiningStrategy(BaseStrategy):
         """Get maximum CPU usage percentage."""
         return getattr(self.config, 'MINING_MAX_CPU_PERCENT', 80.0)
     
+    def _should_use_gpu(self) -> bool:
+        """Determine if GPU mining should be used."""
+        # Check if GPU mining is enabled in config
+        gpu_enabled = getattr(self.config, 'MINING_USE_GPU', True)
+        if not gpu_enabled:
+            return False
+        
+        # Check if GPU module is available and GPUs are detected
+        if not GPU_MINING_AVAILABLE or not self._gpu_detector:
+            return False
+        
+        # Check if we have GPUs
+        if not self._gpu_detector.has_gpu:
+            return False
+        
+        # Check if algorithm is GPU-compatible
+        algo = self.config.MINING_ALGORITHM.lower()
+        gpu_algorithms = {'ethash', 'etchash', 'kawpow', 'autolykos2', 'kheavyhash', 
+                         'blake3', 'octopus', 'randomx', 'dynex'}
+        return algo in gpu_algorithms
+    
     def _initialize(self):
         """Initialize stratum client and miner with adaptive optimization."""
         with self._lock:
             if self._stratum:
                 return  # Already initialized
             
-            self._stratum = StratumClient(
-                pool_url=self.config.MINING_POOL_URL,
-                username=self.config.MINING_POOL_USER,
-                password=self.config.MINING_POOL_PASSWORD,
-                algorithm=self.config.MINING_ALGORITHM,
+            # Check if we should use simulation mode
+            # Simulation mode is used when:
+            # 1. DRY_RUN is enabled
+            # 2. Pool URL is not configured or starts with "simulated://"
+            # 3. Pool URL is explicitly set to test mode
+            use_simulation = (
+                hasattr(self.config, 'DRY_RUN') and self.config.DRY_RUN or
+                not self.config.MINING_POOL_URL or
+                self.config.MINING_POOL_URL.startswith("simulated://") or
+                self.config.MINING_POOL_URL == "test"
             )
+            
+            # Add primary pool to failover manager
+            if self._pool_failover and self.config.MINING_POOL_URL:
+                self._pool_failover.add_pool(
+                    url=self.config.MINING_POOL_URL,
+                    username=self.config.MINING_POOL_USER,
+                    password=self.config.MINING_POOL_PASSWORD,
+                    algorithm=self.config.MINING_ALGORITHM,
+                    priority=0,
+                    is_backup=False
+                )
+            
+            # Create stratum client (real or simulated)
+            if use_simulation:
+                try:
+                    from nexus.strategies.pool_manager import SimulatedStratumClient
+                    self._stratum = SimulatedStratumClient(
+                        pool_url=self.config.MINING_POOL_URL or "simulated://localhost:3333",
+                        username=self.config.MINING_POOL_USER or "test.worker",
+                        password=self.config.MINING_POOL_PASSWORD or "x",
+                        algorithm=self.config.MINING_ALGORITHM,
+                    )
+                    logger.info("Using SIMULATED pool (dry-run/test mode)")
+                except ImportError:
+                    # Fallback to regular client
+                    self._stratum = StratumClient(
+                        pool_url=self.config.MINING_POOL_URL or "",
+                        username=self.config.MINING_POOL_USER or "test",
+                        password=self.config.MINING_POOL_PASSWORD or "x",
+                        algorithm=self.config.MINING_ALGORITHM,
+                    )
+            else:
+                self._stratum = StratumClient(
+                    pool_url=self.config.MINING_POOL_URL,
+                    username=self.config.MINING_POOL_USER,
+                    password=self.config.MINING_POOL_PASSWORD,
+                    algorithm=self.config.MINING_ALGORITHM,
+                )
             
             self._miner = CPUMiner(
                 stratum_client=self._stratum,
@@ -1078,16 +1313,27 @@ class PoWMiningStrategy(BaseStrategy):
             
             # Log environment info
             resource_stats = self._resource_monitor.stats()
-            if resource_stats["is_virtual_server"]:
-                logger.info(
-                    "Mining initialized on virtual server: %d CPUs, %.1fGB RAM, adaptive mode=%s",
-                    resource_stats["cpu_count"],
-                    resource_stats["memory_total_gb"],
-                    self._get_adaptive_mode()
-                )
+            env_type = "virtual server" if resource_stats["is_virtual_server"] else "physical"
+            
+            gpu_info = ""
+            if self._gpu_detector and self._gpu_detector.has_gpu:
+                devices = self._gpu_detector.detect_devices()
+                gpu_info = f", {len(devices)} GPU(s)"
+            
+            mode_info = " (SIMULATION MODE)" if use_simulation else ""
+            
+            logger.info(
+                "Mining initialized on %s: %d CPUs, %.1fGB RAM%s, adaptive mode=%s%s",
+                env_type,
+                resource_stats["cpu_count"],
+                resource_stats["memory_total_gb"],
+                gpu_info,
+                self._get_adaptive_mode(),
+                mode_info
+            )
     
     def start_mining(self) -> bool:
-        """Start the mining session."""
+        """Start the mining session (CPU or GPU based on hardware)."""
         if not self._is_configured():
             logger.warning("PoW mining not configured. Set MINING_POOL_URL and MINING_POOL_USER.")
             return False
@@ -1099,37 +1345,308 @@ class PoWMiningStrategy(BaseStrategy):
             if not self._stratum:
                 self._initialize()
             
-            # Connect to pool
-            if not self._stratum.connect():
-                return False
+            # Determine mining mode
+            use_gpu = self._should_use_gpu()
             
-            # Subscribe and authorize
-            if not self._stratum.subscribe():
-                self._stratum.disconnect()
-                return False
-            
-            if not self._stratum.authorize():
-                self._stratum.disconnect()
-                return False
-            
-            # Start miner
-            self._miner.start()
+            if use_gpu and self._external_miner:
+                # Start GPU mining with external miner
+                return self._start_gpu_mining()
+            else:
+                # Start CPU mining
+                return self._start_cpu_mining()
+    
+    def _start_cpu_mining(self) -> bool:
+        """Start CPU-based mining."""
+        # Connect to pool
+        if not self._stratum.connect():
+            return False
+        
+        # Subscribe and authorize
+        if not self._stratum.subscribe():
+            self._stratum.disconnect()
+            return False
+        
+        if not self._stratum.authorize():
+            self._stratum.disconnect()
+            return False
+        
+        # Start miner
+        self._miner.start()
+        self._running = True
+        self._gpu_mining_active = False
+        self._session_start = time.time()
+        
+        # Start AI optimization loop if enabled
+        if self._ai_optimization_enabled and self._ai_optimizer:
+            self._start_ai_optimization_loop()
+        
+        logger.info("CPU mining started: pool=%s, algorithm=%s",
+                   self.config.MINING_POOL_URL,
+                   self.config.MINING_ALGORITHM)
+        return True
+    
+    def _start_gpu_mining(self) -> bool:
+        """Start GPU-based mining with external miner."""
+        if not GPU_MINING_AVAILABLE or not self._external_miner:
+            logger.warning("GPU mining not available, falling back to CPU")
+            return self._start_cpu_mining()
+        
+        # Get GPU devices
+        devices = self._gpu_detector.detect_devices() if self._gpu_detector else []
+        if not devices:
+            logger.warning("No GPU devices found, falling back to CPU")
+            return self._start_cpu_mining()
+        
+        # Apply GPU optimizer profiles for maximum efficiency
+        if self._gpu_optimizer:
+            for dev in devices:
+                profile = self._gpu_optimizer.get_profile_for_gpu(dev.name, dev.memory_mb)
+                self._gpu_optimizer.apply_profile(dev.device_id, profile)
+                expected_hashrate = profile.expected_hashrates.get(self.config.MINING_ALGORITHM.lower(), 0)
+                logger.info(
+                    "GPU %d optimized: expected %.2f MH/s for %s",
+                    dev.device_id, expected_hashrate / 1e6, self.config.MINING_ALGORITHM
+                )
+        
+        # Determine best miner for the algorithm
+        algo_str = self.config.MINING_ALGORITHM.lower()
+        algo_map = {
+            'ethash': MiningAlgorithm.ETHASH,
+            'etchash': MiningAlgorithm.ETCHASH,
+            'kawpow': MiningAlgorithm.KAWPOW,
+            'autolykos2': MiningAlgorithm.AUTOLYKOS2,
+            'kheavyhash': MiningAlgorithm.KHEAVYHASH,
+            'blake3': MiningAlgorithm.BLAKE3,
+            'randomx': MiningAlgorithm.RANDOMX,
+            'octopus': MiningAlgorithm.OCTOPUS,
+        }
+        
+        algorithm = algo_map.get(algo_str)
+        if not algorithm:
+            logger.warning("Algorithm %s not supported for GPU mining, using CPU", algo_str)
+            return self._start_cpu_mining()
+        
+        # Get best miner for this algorithm and GPU
+        primary_gpu = devices[0]
+        miner_type = self._external_miner.get_best_miner_for_algorithm(
+            algorithm, primary_gpu.vendor
+        )
+        
+        if not miner_type:
+            logger.warning("No external miner available for %s, using CPU", algo_str)
+            return self._start_cpu_mining()
+        
+        # Configure external miner with optimized settings
+        device_ids = [d.device_id for d in devices]
+        
+        # Get optimized intensity from GPU optimizer
+        optimized_intensity = self.config.MINING_INTENSITY
+        if self._gpu_optimizer:
+            profile = self._gpu_optimizer._profiles.get(devices[0].device_id)
+            if profile:
+                optimized_intensity = profile.intensity
+        
+        config = ExternalMinerConfig(
+            miner_type=miner_type,
+            pool_url=self.config.MINING_POOL_URL,
+            wallet_address=self.config.MINING_PAYOUT_ADDRESS or self.config.MINING_POOL_USER,
+            worker_name=self.config.MINING_POOL_USER.split('.')[-1] if '.' in self.config.MINING_POOL_USER else "nexus",
+            algorithm=algo_str,
+            devices=device_ids,
+            intensity=optimized_intensity,
+        )
+        
+        # Add GPU optimizer arguments if available
+        if self._gpu_optimizer:
+            extra_args = self._gpu_optimizer.get_miner_args(devices[0].device_id, algo_str)
+            config.extra_args.extend(extra_args)
+        
+        # Start external miner
+        if self._external_miner.start(config):
             self._running = True
+            self._gpu_mining_active = True
             self._session_start = time.time()
+            self._current_mining_coin = algo_str.upper()
             
-            logger.info("PoW mining started: pool=%s, algorithm=%s",
-                       self.config.MINING_POOL_URL,
-                       self.config.MINING_ALGORITHM)
+            # Start AI optimization loop
+            if self._ai_optimization_enabled and self._ai_optimizer:
+                self._start_ai_optimization_loop()
+            
+            # Start GPU monitoring
+            if self._gpu_optimizer:
+                self._gpu_optimizer.start_monitoring()
+            
+            logger.info(
+                "GPU mining started: %s miner, %d GPU(s), pool=%s, algorithm=%s, AI optimization=%s",
+                miner_type.value, len(devices), self.config.MINING_POOL_URL, algo_str,
+                "enabled" if self._ai_optimization_enabled else "disabled"
+            )
             return True
+        else:
+            logger.error("Failed to start external miner, falling back to CPU")
+            return self._start_cpu_mining()
+    
+    def _start_ai_optimization_loop(self):
+        """Start the AI optimization background loop."""
+        if self._ai_optimization_thread and self._ai_optimization_thread.is_alive():
+            return
+        
+        self._ai_optimization_thread = threading.Thread(
+            target=self._ai_optimization_loop,
+            daemon=True,
+            name="ai-mining-optimizer"
+        )
+        self._ai_optimization_thread.start()
+        logger.info("AI mining optimization loop started")
+    
+    def _ai_optimization_loop(self):
+        """Background loop for AI-driven mining optimization."""
+        optimization_interval = 30.0  # Optimize every 30 seconds
+        
+        while self._running:
+            time.sleep(optimization_interval)
+            
+            if not self._running or not self._ai_optimizer:
+                break
+            
+            try:
+                # Create mining snapshot from current state
+                snapshot = self._create_mining_snapshot()
+                if not snapshot:
+                    continue
+                
+                # Record snapshot for learning
+                self._ai_optimizer.record_snapshot(snapshot)
+                
+                # Get AI optimization recommendation
+                result = self._ai_optimizer.optimize(snapshot)
+                
+                # Apply optimization if confidence is high enough
+                if result.confidence >= 0.6 and result.decision != MiningDecision.CONTINUE:
+                    self._apply_ai_optimization(result, snapshot)
+                
+                # Store snapshot for learning feedback
+                self._last_snapshot = snapshot
+                
+            except Exception as e:
+                logger.warning("AI optimization error: %s", e)
+    
+    def _create_mining_snapshot(self) -> Optional["MiningSnapshot"]:
+        """Create a snapshot of current mining state for AI."""
+        if not AI_OPTIMIZER_AVAILABLE:
+            return None
+        
+        # Get miner stats
+        miner_stats = self._miner.stats() if self._miner else {}
+        stratum_stats = self._stratum.stats() if self._stratum else {}
+        resource_stats = self._resource_monitor.stats()
+        
+        # Get GPU stats if available
+        gpu_temp = 0.0
+        gpu_power = 0.0
+        gpu_fan = 0.0
+        gpu_name = "CPU"
+        memory_used = 0
+        
+        if self._gpu_detector and self._gpu_mining_active:
+            devices = self._gpu_detector.update_device_stats()
+            if devices:
+                dev = devices[0]
+                gpu_temp = dev.temperature
+                gpu_power = dev.power_usage_watts
+                gpu_fan = dev.fan_speed_percent
+                gpu_name = dev.name
+                memory_used = dev.memory_mb
+        else:
+            # Use CPU stats
+            gpu_temp = resource_stats.get("cpu_percent", 50)  # Proxy temp from CPU load
+            gpu_power = resource_stats.get("cpu_count", 4) * 10  # Estimate
+        
+        # Get external miner stats if GPU mining
+        ext_stats = {}
+        if self._gpu_mining_active and self._external_miner:
+            ext_stats = self._external_miner.get_stats()
+        
+        hashrate = ext_stats.get("hashrate", miner_stats.get("hashrate", 0))
+        accepted = ext_stats.get("shares_accepted", stratum_stats.get("shares_accepted", 0))
+        rejected = ext_stats.get("shares_rejected", stratum_stats.get("shares_rejected", 0))
+        
+        # Get intensity
+        intensity = miner_stats.get("intensity", self.config.MINING_INTENSITY)
+        if self._gpu_optimizer:
+            profile = self._gpu_optimizer._profiles.get(0)
+            if profile:
+                intensity = profile.intensity
+        
+        return create_mining_snapshot(
+            gpu_id=0,
+            gpu_name=gpu_name,
+            temperature_c=gpu_temp,
+            power_watts=gpu_power,
+            fan_speed_percent=gpu_fan,
+            memory_used_mb=memory_used,
+            algorithm=self.config.MINING_ALGORITHM,
+            coin=self._current_mining_coin or self.config.MINING_ALGORITHM.upper(),
+            intensity=intensity,
+            hashrate=hashrate,
+            accepted_shares=accepted,
+            rejected_shares=rejected,
+            coin_price_usd=0.0,  # Would be fetched from price feed
+            network_difficulty=stratum_stats.get("difficulty", 1.0),
+            estimated_daily_usd=self._estimated_earnings_usd * 24,
+            electricity_cost_kwh=getattr(self.config, 'MINING_ELECTRICITY_COST_KWH', 0.10),
+        )
+    
+    def _apply_ai_optimization(self, result: "OptimizationResult", snapshot: "MiningSnapshot"):
+        """Apply AI optimization recommendation."""
+        logger.info(
+            "AI optimization: %s (confidence: %.1f%%) - %s",
+            result.decision.value, result.confidence * 100, result.reasoning
+        )
+        
+        old_snapshot = self._last_snapshot
+        
+        # Apply recommended settings
+        if "intensity" in result.recommended_settings:
+            new_intensity = result.recommended_settings["intensity"]
+            self.update_intensity(int(new_intensity))
+        
+        if "power_limit_percent" in result.recommended_settings:
+            if self._gpu_optimizer:
+                new_power = result.recommended_settings["power_limit_percent"]
+                self._gpu_optimizer._set_nvidia_power_limit(snapshot.gpu_id, int(new_power))
+        
+        # Handle specific decisions
+        if result.decision == MiningDecision.COOL_DOWN:
+            # Reduce intensity and increase fan
+            self.update_intensity(max(50, snapshot.intensity - 20))
+            logger.warning("AI initiated cool-down - reducing mining intensity")
+        
+        elif result.decision == MiningDecision.SWITCH_COIN:
+            if self._profit_switcher:
+                best = self._profit_switcher.get_most_profitable()
+                if best:
+                    logger.info("AI recommends switching to %s", best.coin)
+                    # Would trigger coin switch
+        
+        # Learn from the result (will be evaluated on next snapshot)
+        if old_snapshot and self._ai_optimizer:
+            self._ai_optimizer.learn_from_result(old_snapshot, snapshot, result.decision)
     
     def stop_mining(self):
-        """Stop the mining session."""
+        """Stop the mining session (CPU and/or GPU)."""
         with self._lock:
             if not self._running:
                 return
             
             self._running = False
             
+            # Stop GPU mining if active
+            if self._gpu_mining_active and self._external_miner:
+                self._external_miner.stop()
+                self._gpu_mining_active = False
+            
+            # Stop CPU mining
             if self._miner:
                 self._miner.stop()
             
@@ -1225,11 +1742,36 @@ class PoWMiningStrategy(BaseStrategy):
             logger.info("Thread count update queued (%d threads) - requires restart", threads)
     
     def status(self) -> dict:
-        """Get mining strategy status with virtual server optimization details."""
+        """Get mining strategy status with virtual server and GPU optimization details."""
         with self._lock:
             stratum_stats = self._stratum.stats() if self._stratum else {}
             miner_stats = self._miner.stats() if self._miner else {}
             resource_stats = self._resource_monitor.stats()
+            
+            # Get GPU mining stats if active
+            gpu_stats = {}
+            if self._gpu_mining_active and self._external_miner:
+                gpu_stats = self._external_miner.get_stats()
+            
+            # Get GPU device info
+            gpu_devices = []
+            if GPU_MINING_AVAILABLE and self._gpu_detector:
+                devices = self._gpu_detector.update_device_stats()
+                gpu_devices = [d.to_dict() for d in devices]
+            
+            # Get profit switching info
+            profitability = []
+            current_best_coin = None
+            if self._profit_switcher:
+                profitability = self._profit_switcher.get_all_profitability()
+                best = self._profit_switcher.get_most_profitable()
+                if best:
+                    current_best_coin = best.coin
+            
+            # Get pool failover info
+            pools = []
+            if self._pool_failover:
+                pools = self._pool_failover.get_all_pools()
             
             return {
                 "name": self.name,
@@ -1254,7 +1796,129 @@ class PoWMiningStrategy(BaseStrategy):
                     "adaptive_mode": self._get_adaptive_mode(),
                     "max_cpu_percent": self._get_max_cpu_percent(),
                 },
+                # GPU mining info
+                "gpu_mining": {
+                    "available": GPU_MINING_AVAILABLE and self._gpu_detector and self._gpu_detector.has_gpu,
+                    "active": self._gpu_mining_active,
+                    "devices": gpu_devices,
+                    "external_miner_stats": gpu_stats,
+                    "available_miners": (
+                        [m.value for m in self._external_miner.available_miners]
+                        if self._external_miner else []
+                    ),
+                },
+                # Profit switching info
+                "profit_switching": {
+                    "enabled": self._profit_switcher is not None,
+                    "current_coin": self._current_mining_coin,
+                    "most_profitable_coin": current_best_coin,
+                    "profitability_data": profitability,
+                },
+                # Pool failover info
+                "pool_failover": {
+                    "enabled": len(pools) > 1,
+                    "pools": pools,
+                },
             }
+    
+    # ── GPU Mining Control Methods ────────────────────────────────────────────
+    
+    def get_gpu_devices(self) -> list[dict]:
+        """Get information about available GPU devices."""
+        if not GPU_MINING_AVAILABLE or not self._gpu_detector:
+            return []
+        devices = self._gpu_detector.detect_devices()
+        self._gpu_detector.update_device_stats()
+        return [d.to_dict() for d in devices]
+    
+    def switch_coin(self, coin: str) -> bool:
+        """
+        Switch mining to a different coin (requires restart).
+        
+        Args:
+            coin: Coin symbol (e.g., 'RVN', 'ETC', 'ERG')
+        
+        Returns:
+            True if switch was initiated
+        """
+        if not self._profit_switcher:
+            logger.warning("Profit switcher not available")
+            return False
+        
+        # Get coin configuration from profit switcher
+        profitability = self._profit_switcher.get_all_profitability()
+        coin_data = next((c for c in profitability if c["coin"] == coin.upper()), None)
+        
+        if not coin_data:
+            logger.warning("Coin %s not found in profitability data", coin)
+            return False
+        
+        # Stop current mining
+        was_running = self._running
+        if was_running:
+            self.stop_mining()
+        
+        # Update configuration (in memory, config file would need separate update)
+        self._current_mining_coin = coin.upper()
+        logger.info("Switching mining to %s", coin.upper())
+        
+        # Restart if was running
+        if was_running:
+            return self.start_mining()
+        
+        return True
+    
+    def enable_profit_switching(self, threshold_percent: float = 10.0):
+        """
+        Enable automatic profit switching.
+        
+        Args:
+            threshold_percent: Minimum profit improvement to trigger switch
+        """
+        if not self._profit_switcher:
+            logger.warning("Profit switcher not available")
+            return
+        
+        # Start background thread for profit monitoring
+        if not hasattr(self, '_profit_switch_thread') or not self._profit_switch_thread.is_alive():
+            self._profit_switch_enabled = True
+            self._profit_switch_threshold = threshold_percent
+            self._profit_switch_thread = threading.Thread(
+                target=self._profit_switch_loop,
+                daemon=True,
+                name="profit-switcher"
+            )
+            self._profit_switch_thread.start()
+            logger.info("Profit switching enabled (threshold: %.1f%%)", threshold_percent)
+    
+    def disable_profit_switching(self):
+        """Disable automatic profit switching."""
+        self._profit_switch_enabled = False
+        logger.info("Profit switching disabled")
+    
+    def _profit_switch_loop(self):
+        """Background loop for profit-based coin switching."""
+        check_interval = 300.0  # Check every 5 minutes
+        
+        while getattr(self, '_profit_switch_enabled', False) and self._running:
+            time.sleep(check_interval)
+            
+            if not self._profit_switcher or not self._running:
+                continue
+            
+            try:
+                new_coin = self._profit_switcher.should_switch(
+                    self._current_mining_coin,
+                    getattr(self, '_profit_switch_threshold', 10.0)
+                )
+                
+                if new_coin:
+                    logger.info("Profit switch recommended: %s -> %s", 
+                               self._current_mining_coin, new_coin)
+                    self.switch_coin(new_coin)
+                    
+            except Exception as e:
+                logger.warning("Profit switch check failed: %s", e)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1263,10 +1927,25 @@ class PoWMiningStrategy(BaseStrategy):
 
 def get_mining_environment_info() -> dict:
     """
-    Get information about the current mining environment.
+    Get comprehensive mining environment information.
     
-    Useful for displaying environment info in the dashboard
-    without needing to start mining.
+    Includes both CPU and GPU capabilities for the dashboard.
     """
     monitor = get_resource_monitor()
-    return monitor.stats()
+    cpu_stats = monitor.stats()
+    
+    # Add GPU info if available
+    gpu_info = {}
+    if GPU_MINING_AVAILABLE:
+        try:
+            gpu_info = get_gpu_mining_info()
+        except Exception as e:
+            logger.debug("Failed to get GPU info: %s", e)
+            gpu_info = {"has_gpu": False, "error": str(e)}
+    else:
+        gpu_info = {"has_gpu": False, "gpu_mining_module": False}
+    
+    return {
+        **cpu_stats,
+        "gpu": gpu_info,
+    }

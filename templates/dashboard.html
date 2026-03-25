@@ -252,7 +252,7 @@
 
     <!-- Virtual Server Environment -->
     <div class="card">
-      <div class="card-head">🖥️ Virtual Server Environment</div>
+      <div class="card-head">🖥️ Server & Hardware Environment</div>
       <div class="environment-info">
         <div class="env-grid">
           <div class="env-item">
@@ -299,27 +299,91 @@
       </div>
     </div>
 
+    <!-- GPU Mining Section -->
+    <div class="card" id="gpu-mining-section">
+      <div class="card-head">🎮 GPU Mining (Hardware Competitive)</div>
+      <div class="gpu-mining-content">
+        <div class="gpu-status-row">
+          <div class="gpu-status-item">
+            <span class="status-label">GPU Mining:</span>
+            <span id="gpu-mining-status" class="status-value badge badge-dim">Checking...</span>
+          </div>
+          <div class="gpu-status-item">
+            <span class="status-label">External Miner:</span>
+            <span id="gpu-external-miner" class="status-value">–</span>
+          </div>
+          <div class="gpu-status-item">
+            <span class="status-label">GPU Hashrate:</span>
+            <span id="gpu-hashrate" class="status-value">–</span>
+          </div>
+        </div>
+        
+        <!-- GPU Devices List -->
+        <div id="gpu-devices-list" class="gpu-devices">
+          <div class="gpu-device-placeholder">No GPUs detected. GPU mining will use CPU fallback.</div>
+        </div>
+        
+        <!-- Profit Switching Section -->
+        <div class="profit-switching-section">
+          <div class="section-header">
+            <span>💰 Profit Switching</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="profit-switching-toggle" onchange="toggleProfitSwitching(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="profitability-table" class="profitability-grid">
+            <div class="profit-row profit-header">
+              <span>Coin</span>
+              <span>Algorithm</span>
+              <span>Est. Daily</span>
+              <span>Status</span>
+            </div>
+            <div id="profit-coins-list">
+              <div class="profit-row">
+                <span>–</span>
+                <span>–</span>
+                <span>–</span>
+                <span>–</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Available External Miners -->
+        <div class="external-miners-section">
+          <span class="section-label">Available Miners:</span>
+          <span id="available-miners" class="miners-list">Detecting...</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Mining Information -->
     <div class="card">
       <div class="card-head">ℹ️ About PoW Mining</div>
       <div class="info-content">
         <p><strong>Proof of Work mining</strong> earns cryptocurrency by solving computational puzzles. 
-           This implementation is optimized for virtual servers with:</p>
+           This implementation is optimized for virtual servers and GPU instances to compete with dedicated hardware:</p>
         <ul>
-          <li><strong>Adaptive Resource Management:</strong> Automatically adjusts threads and intensity based on CPU load</li>
-          <li><strong>Memory-Efficient Batching:</strong> Optimized batch sizes for cloud environments</li>
-          <li><strong>Throttle Prevention:</strong> Stays under CPU quotas to avoid provider restrictions</li>
+          <li><strong>GPU Mining:</strong> Auto-detects NVIDIA/AMD GPUs and uses optimized external miners (T-Rex, lolMiner, XMRig)</li>
+          <li><strong>Multi-GPU Support:</strong> Utilizes all available GPUs for maximum hashrate</li>
+          <li><strong>Profit Switching:</strong> Automatically switches to most profitable coin based on market conditions</li>
+          <li><strong>Pool Failover:</strong> Automatic failover to backup pools for high availability</li>
+          <li><strong>Adaptive Resource Management:</strong> Automatically adjusts threads and intensity based on load</li>
           <li><strong>Stratum Protocol:</strong> Standard mining pool communication</li>
         </ul>
-        <p class="info-note">💡 <strong>Note:</strong> CPU mining profitability is low compared to dedicated hardware. 
-           This feature is best used for testing, learning, or mining low-difficulty coins.</p>
+        <p class="info-note">💡 <strong>Tip:</strong> Enable GPU mining and profit switching for best returns. 
+           Cloud GPU instances (AWS P3, GCP A100, Azure NC) can achieve competitive hashrates.</p>
         <p class="info-supported">
           <strong>Supported Algorithms:</strong> 
           <span class="badge">SHA-256</span>
           <span class="badge">Scrypt</span>
-          <span class="badge badge-dim">RandomX*</span>
-          <span class="badge badge-dim">KawPow*</span>
-          <small>(*requires external miner)</small>
+          <span class="badge badge-green">Etchash</span>
+          <span class="badge badge-green">KawPow</span>
+          <span class="badge badge-green">Autolykos2</span>
+          <span class="badge badge-green">kHeavyHash</span>
+          <span class="badge badge-green">RandomX</span>
+          <small>(green = GPU optimized)</small>
         </p>
       </div>
     </div>

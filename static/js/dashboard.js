@@ -1738,6 +1738,184 @@ function renderMiningStatus(data) {
   setText('env-max-cpu', `${env.max_cpu_percent || miner.max_cpu_percent || 80}%`);
   setText('env-intensity-adj', miner.intensity_adjustments || 0);
   setText('env-throttle-events', miner.throttle_events || 0);
+  
+  // Render GPU mining section
+  renderGPUMining(data);
+}
+
+function renderGPUMining(data) {
+  const gpuMining = data.gpu_mining || {};
+  const profitSwitching = data.profit_switching || {};
+  
+  // Update GPU mining status
+  const gpuAvailable = gpuMining.available || false;
+  const gpuActive = gpuMining.active || false;
+  
+  const gpuStatusEl = $('gpu-mining-status');
+  if (gpuStatusEl) {
+    if (gpuActive) {
+      gpuStatusEl.textContent = 'Active';
+      gpuStatusEl.className = 'status-value badge badge-green';
+    } else if (gpuAvailable) {
+      gpuStatusEl.textContent = 'Available';
+      gpuStatusEl.className = 'status-value badge badge-orange';
+    } else {
+      gpuStatusEl.textContent = 'CPU Only';
+      gpuStatusEl.className = 'status-value badge badge-dim';
+    }
+  }
+  
+  // Update external miner info
+  const extMinerStats = gpuMining.external_miner_stats || {};
+  setText('gpu-external-miner', extMinerStats.miner || '–');
+  
+  // GPU hashrate
+  const gpuHashrate = extMinerStats.hashrate || 0;
+  setText('gpu-hashrate', gpuHashrate > 0 ? formatHashrate(gpuHashrate) : '–');
+  
+  // Render GPU devices
+  const devicesContainer = $('gpu-devices-list');
+  if (devicesContainer) {
+    const devices = gpuMining.devices || [];
+    if (devices.length > 0) {
+      devicesContainer.innerHTML = devices.map(dev => renderGPUDevice(dev)).join('');
+    } else {
+      devicesContainer.innerHTML = '<div class="gpu-device-placeholder">No GPUs detected. GPU mining will use CPU fallback.</div>';
+    }
+  }
+  
+  // Render available miners
+  const minersEl = $('available-miners');
+  if (minersEl) {
+    const miners = gpuMining.available_miners || [];
+    if (miners.length > 0) {
+      minersEl.innerHTML = miners.map(m => 
+        `<span class="badge badge-available">${m}</span>`
+      ).join('');
+    } else {
+      minersEl.innerHTML = '<span class="badge badge-dim">None installed</span>';
+    }
+  }
+  
+  // Render profit switching
+  const profitToggle = $('profit-switching-toggle');
+  if (profitToggle) {
+    profitToggle.checked = profitSwitching.enabled || false;
+  }
+  
+  const profitCoinsEl = $('profit-coins-list');
+  if (profitCoinsEl) {
+    const coins = profitSwitching.profitability_data || [];
+    const currentCoin = profitSwitching.current_coin || '';
+    const bestCoin = profitSwitching.most_profitable_coin || '';
+    
+    if (coins.length > 0) {
+      profitCoinsEl.innerHTML = coins.map(coin => {
+        const isMining = coin.coin === currentCoin;
+        const isBest = coin.coin === bestCoin;
+        return `
+          <div class="profit-row">
+            <span>${coin.coin} ${isBest ? '⭐' : ''}</span>
+            <span>${coin.algorithm}</span>
+            <span>$${coin.estimated_daily_usd.toFixed(2)}</span>
+            <span>${isMining ? '<span class="badge badge-mining">Mining</span>' : 
+                   (isBest ? '<span class="badge badge-green">Best</span>' : '–')}</span>
+          </div>
+        `;
+      }).join('');
+    } else {
+      profitCoinsEl.innerHTML = `
+        <div class="profit-row">
+          <span>–</span>
+          <span>–</span>
+          <span>–</span>
+          <span>–</span>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderGPUDevice(dev) {
+  const tempClass = dev.temperature_c > 85 ? 'temp-critical' : (dev.temperature_c > 75 ? 'temp-high' : '');
+  
+  return `
+    <div class="gpu-device">
+      <div class="gpu-device-name">
+        <span class="badge ${dev.vendor === 'nvidia' ? 'badge-green' : 'badge-orange'}">${dev.vendor.toUpperCase()}</span>
+        ${dev.name}
+      </div>
+      <div class="gpu-device-stats">
+        <div class="gpu-stat ${tempClass}">
+          <span class="gpu-stat-value">${dev.temperature_c || 0}°C</span>
+          <span class="gpu-stat-label">Temp</span>
+        </div>
+        <div class="gpu-stat">
+          <span class="gpu-stat-value">${dev.power_watts || 0}W</span>
+          <span class="gpu-stat-label">Power</span>
+        </div>
+        <div class="gpu-stat">
+          <span class="gpu-stat-value">${dev.memory_mb || 0}MB</span>
+          <span class="gpu-stat-label">VRAM</span>
+        </div>
+        <div class="gpu-stat">
+          <span class="gpu-stat-value">${dev.fan_speed_percent || 0}%</span>
+          <span class="gpu-stat-label">Fan</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function formatHashrate(hashrate) {
+  if (hashrate >= 1e12) return `${(hashrate / 1e12).toFixed(2)} TH/s`;
+  if (hashrate >= 1e9) return `${(hashrate / 1e9).toFixed(2)} GH/s`;
+  if (hashrate >= 1e6) return `${(hashrate / 1e6).toFixed(2)} MH/s`;
+  if (hashrate >= 1e3) return `${(hashrate / 1e3).toFixed(2)} KH/s`;
+  return `${hashrate.toFixed(2)} H/s`;
+}
+
+async function toggleProfitSwitching(enabled) {
+  try {
+    const resp = await fetch('/api/mining/profit_switching', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled: enabled, threshold_percent: 10.0 })
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      showModal('Profit Switching Error', `<div class="red">${data.error}</div>`);
+      // Revert toggle
+      const toggle = $('profit-switching-toggle');
+      if (toggle) toggle.checked = !enabled;
+    }
+    
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to toggle profit switching:', e);
+  }
+}
+
+async function switchMiningCoin(coin) {
+  try {
+    const resp = await fetch('/api/mining/switch_coin', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ coin: coin })
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      showModal('Coin Switch Error', `<div class="red">${data.error}</div>`);
+      return;
+    }
+    
+    showModal('Coin Switched', `<div class="green">Now mining ${coin}</div>`);
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to switch coin:', e);
+  }
 }
 
 function updateKPI(id, value) {
