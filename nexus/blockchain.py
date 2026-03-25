@@ -157,17 +157,18 @@ class BlockchainManager:
     # ── Connection setup ──────────────────────────────────────
 
     def _try_connect(self, chain: str, rpc: str) -> Optional[Web3]:
-        """Try a single RPC endpoint."""
+        """Try a single RPC endpoint with graceful error handling."""
         if not rpc:
             return None
         try:
-            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 15}))
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 10}))
             if CHAIN_INFO[chain]["poa"]:
                 w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+            # Simple connectivity check - is_connected() is lightweight
             if w3.is_connected():
                 return w3
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("RPC connection attempt failed for %s (%s): %s", chain, rpc[:30], exc)
         return None
 
     def _connect(self, chain: str) -> Optional[Web3]:
@@ -177,7 +178,14 @@ class BlockchainManager:
                 continue
             w3 = self._try_connect(chain, rpc)
             if w3:
-                block = w3.eth.block_number
+                # Try to get block number, but don't fail if RPC rejects it
+                block = "unknown"
+                try:
+                    block = w3.eth.block_number
+                except Exception as exc:
+                    # RPC might be connected but rejecting some requests (rate limited)
+                    logger.debug("Block number fetch failed for %s (but connected): %s", chain, exc)
+                
                 logger.info(
                     "Connected to %s via %s (block=%s)",
                     CHAIN_INFO[chain]["name"],
@@ -185,7 +193,7 @@ class BlockchainManager:
                     block,
                 )
                 return w3
-        logger.warning("All RPC endpoints failed for %s", chain)
+        logger.warning("All RPC endpoints failed for %s - will retry in background", chain)
         return None
 
     def _connect_all(self):
@@ -249,7 +257,14 @@ class BlockchainManager:
         self._block_listeners.append(callback)
 
     def _block_poll_loop(self):
+        """Background block poller with automatic reconnection for failed chains."""
+        reconnect_interval = 30  # Seconds between reconnection attempts
+        last_reconnect_attempt = 0
+        
         while self._running:
+            now = time.time()
+            
+            # Poll connected chains
             for chain, w3 in list(self._connections.items()):
                 try:
                     block_num = w3.eth.block_number
@@ -267,10 +282,46 @@ class BlockchainManager:
                 except Exception as exc:
                     logger.debug("Block poll error on %s: %s", chain, exc)
                     # Try to reconnect
-                    w3_new = self._connect(chain)
-                    if w3_new:
-                        self._connections[chain] = w3_new
+                    try:
+                        w3_new = self._connect(chain)
+                        if w3_new:
+                            self._connections[chain] = w3_new
+                    except Exception as reconn_exc:
+                        logger.debug("Reconnection failed for %s: %s", chain, reconn_exc)
+
+            # Periodically try to reconnect failed chains
+            if now - last_reconnect_attempt > reconnect_interval:
+                last_reconnect_attempt = now
+                self._retry_failed_chains()
+
             time.sleep(BLOCK_POLL_SECONDS)
+
+    def _retry_failed_chains(self):
+        """Try to reconnect chains that previously failed."""
+        from nexus.utils.gas import GasManager
+        from nexus.execution.multicall import MulticallClient
+        
+        for chain, enabled in _ENABLED_MAP.items():
+            if not enabled:
+                continue
+            if chain in self._connections:
+                continue  # Already connected
+            
+            try:
+                w3 = self._connect(chain)
+                if w3:
+                    self._connections[chain] = w3
+                    try:
+                        self._gas_managers[chain] = GasManager(w3, chain)
+                    except Exception:
+                        pass
+                    try:
+                        self._multicall_clients[chain] = MulticallClient(w3)
+                    except Exception:
+                        pass
+                    logger.info("Successfully reconnected to %s", chain)
+            except Exception as exc:
+                logger.debug("Retry connection failed for %s: %s", chain, exc)
 
     def stop(self):
         self._running = False

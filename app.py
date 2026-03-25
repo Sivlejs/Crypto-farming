@@ -38,18 +38,42 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 _agent_started = False
 _agent_lock = threading.Lock()
 _agent_start_thread: threading.Thread | None = None
+_agent_init_attempts = 0
+_MAX_AGENT_INIT_ATTEMPTS = 3
 
 
 def _start_agent_once():
-    global _agent_started
-    try:
-        agent = get_agent()
-        agent.start()
-        with _agent_lock:
-            _agent_started = True
-        logger.info("Agent started successfully")
-    except Exception as exc:
-        logger.error("Failed to start agent: %s", exc)
+    """Initialize and start the agent with retry logic."""
+    global _agent_started, _agent_init_attempts
+    
+    while _agent_init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
+        _agent_init_attempts += 1
+        try:
+            agent = get_agent()
+            agent.start()
+            with _agent_lock:
+                _agent_started = True
+            chains = agent.blockchain.connected_chains()
+            logger.info(
+                "Agent started successfully with %d chains: %s",
+                len(chains), chains or "none yet"
+            )
+            return
+        except Exception as exc:
+            logger.warning(
+                "Agent start attempt %d/%d failed: %s",
+                _agent_init_attempts, _MAX_AGENT_INIT_ATTEMPTS, exc
+            )
+            if _agent_init_attempts < _MAX_AGENT_INIT_ATTEMPTS:
+                time.sleep(5)  # Wait before retry
+    
+    # After all retries, mark as started anyway to prevent infinite attempts
+    # The agent will continue trying to connect to chains in the background
+    logger.warning(
+        "Agent initialization had issues but will continue running in degraded mode"
+    )
+    with _agent_lock:
+        _agent_started = True
 
 
 # Start agent in background after first request is handled
