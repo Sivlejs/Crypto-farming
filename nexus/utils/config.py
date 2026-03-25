@@ -116,6 +116,11 @@ class Config:
     MINING_INTENSITY: int = _int("MINING_INTENSITY", 50)
     # Payout address for mining rewards
     MINING_PAYOUT_ADDRESS: str = os.getenv("MINING_PAYOUT_ADDRESS", "")
+    # ── Virtual Server Mining Optimizations ──────────────────
+    # Enable adaptive resource management (auto-adjusts threads/intensity)
+    MINING_ADAPTIVE_MODE: bool = _bool("MINING_ADAPTIVE_MODE", True)
+    # Maximum CPU usage percentage for mining (for throttling)
+    MINING_MAX_CPU_PERCENT: float = float(os.getenv("MINING_MAX_CPU_PERCENT", "80.0"))
 
     # ── Speed / MEV settings ──────────────────────────────────
 

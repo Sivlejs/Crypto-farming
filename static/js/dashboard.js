@@ -1109,6 +1109,7 @@ function populateSettingsForm(settings) {
   document.getElementById('set-strat-yield').checked = settings.strategy_yield_farming?.value ?? true;
   document.getElementById('set-strat-lp').checked = settings.strategy_liquidity_mining?.value ?? true;
   document.getElementById('set-strat-liq').checked = settings.strategy_liquidation?.value ?? true;
+  document.getElementById('set-strat-pow').checked = settings.strategy_pow_mining?.value ?? false;
 
   // Chain checkboxes
   document.getElementById('set-chain-eth').checked = settings.chain_eth?.value ?? true;
@@ -1634,6 +1635,209 @@ async function getAIAllocation() {
     if (resultDiv) resultDiv.innerHTML = '<div class="red">Failed to get allocation</div>';
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Mining Section
+// ═══════════════════════════════════════════════════════════════
+
+let _miningStatus = {};
+let _miningRefreshInterval = null;
+
+async function loadMiningStatus() {
+  try {
+    const resp = await fetch('/api/mining/status');
+    const data = await resp.json();
+    _miningStatus = data;
+    renderMiningStatus(data);
+  } catch(e) {
+    console.error('Failed to load mining status:', e);
+  }
+}
+
+function renderMiningStatus(data) {
+  const running = data.running || false;
+  const paused = data.miner?.paused || false;
+  const configured = data.configured || false;
+  const stratum = data.stratum || {};
+  const miner = data.miner || {};
+  const env = data.environment || miner.resources || {};
+  
+  // Update control buttons
+  const startBtn = $('mining-start-btn');
+  const stopBtn = $('mining-stop-btn');
+  const pauseBtn = $('mining-pause-btn');
+  const resumeBtn = $('mining-resume-btn');
+  
+  if (startBtn) startBtn.style.display = running ? 'none' : 'inline-flex';
+  if (stopBtn) stopBtn.style.display = running ? 'inline-flex' : 'none';
+  if (pauseBtn) pauseBtn.style.display = (running && !paused) ? 'inline-flex' : 'none';
+  if (resumeBtn) resumeBtn.style.display = (running && paused) ? 'inline-flex' : 'none';
+  
+  // Update KPIs
+  const hashrate = miner.hashrate_formatted || '0 H/s';
+  updateKPI('mining-kpi-hashrate', hashrate);
+  
+  const shares = `${stratum.shares_accepted || 0}/${stratum.shares_submitted || 0}`;
+  updateKPI('mining-kpi-shares', shares);
+  
+  updateKPI('mining-kpi-earnings', fmtUSD(data.estimated_earnings_usd || 0));
+  updateKPI('mining-kpi-uptime', formatDuration(miner.uptime_seconds || 0));
+  
+  const statusText = running ? (paused ? 'Paused' : (stratum.connected ? 'Mining' : 'Connecting...')) : 'Offline';
+  const statusKpi = $('mining-kpi-status');
+  if (statusKpi) {
+    statusKpi.querySelector('.kpi-value').textContent = statusText;
+    statusKpi.querySelector('.kpi-value').className = 'kpi-value ' + 
+      (running ? (paused ? 'orange' : 'green') : 'red');
+  }
+  
+  updateKPI('mining-kpi-cpu', `${env.cpu_percent?.toFixed(1) || 0}%`);
+  
+  // Update pool connection info
+  setText('mining-pool-url', configured ? (data.pool_url || 'Not configured') : 'Not configured');
+  setText('mining-worker', stratum.worker || '–');
+  setText('mining-algorithm', (data.algorithm || 'sha256').toUpperCase());
+  setText('mining-difficulty', stratum.difficulty?.toFixed(4) || '–');
+  setText('mining-accept-rate', stratum.accept_rate ? `${stratum.accept_rate.toFixed(1)}%` : '–');
+  
+  // Update miner configuration
+  setText('mining-threads', miner.threads || 'Auto');
+  setText('mining-batch-size', miner.batch_size?.toLocaleString() || '–');
+  setText('mining-total-hashes', (miner.total_hashes || 0).toLocaleString());
+  
+  const intensitySlider = $('mining-intensity-slider');
+  const intensityValue = $('mining-intensity-value');
+  if (intensitySlider && miner.intensity) {
+    intensitySlider.value = miner.intensity;
+    if (intensityValue) intensityValue.textContent = `${miner.intensity}%`;
+  }
+  
+  const adaptiveEl = $('mining-adaptive');
+  if (adaptiveEl) {
+    const adaptive = miner.adaptive_mode ?? true;
+    adaptiveEl.textContent = adaptive ? 'Enabled' : 'Disabled';
+    adaptiveEl.className = 'status-value badge ' + (adaptive ? 'badge-green' : 'badge-dim');
+  }
+  
+  // Update environment info
+  const isVirtual = env.is_virtual_server ?? false;
+  setText('env-type', isVirtual ? 'Virtual Server' : 'Physical/Local');
+  const envTypeEl = $('env-type');
+  if (envTypeEl) {
+    envTypeEl.className = 'env-value badge ' + (isVirtual ? 'badge-accent' : 'badge-dim');
+  }
+  
+  setText('env-cpu-count', env.cpu_count || '–');
+  setText('env-cpu-percent', `${env.cpu_percent?.toFixed(1) || 0}%`);
+  
+  const memTotal = env.memory_total_gb || 0;
+  const memAvail = env.memory_available_gb || 0;
+  setText('env-memory', `${memAvail.toFixed(1)} / ${memTotal.toFixed(1)} GB`);
+  
+  setText('env-optimal-threads', env.optimal_threads || '–');
+  setText('env-max-cpu', `${env.max_cpu_percent || miner.max_cpu_percent || 80}%`);
+  setText('env-intensity-adj', miner.intensity_adjustments || 0);
+  setText('env-throttle-events', miner.throttle_events || 0);
+}
+
+function updateKPI(id, value) {
+  const el = $(id);
+  if (el) {
+    const valueEl = el.querySelector('.kpi-value');
+    if (valueEl) valueEl.textContent = value;
+  }
+}
+
+function setText(id, value) {
+  const el = $(id);
+  if (el) el.textContent = value;
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '0:00:00';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+async function miningControl(action) {
+  try {
+    const resp = await fetch(`/api/mining/${action}`, { method: 'POST' });
+    const data = await resp.json();
+    
+    if (data.error) {
+      showModal('Mining Error', `<div class="red">${data.error}</div>`);
+      return;
+    }
+    
+    // Start auto-refresh when mining starts
+    if (action === 'start' && data.ok) {
+      startMiningRefresh();
+    } else if (action === 'stop') {
+      stopMiningRefresh();
+    }
+    
+    // Refresh status immediately
+    loadMiningStatus();
+    
+  } catch(e) {
+    showModal('Mining Error', `<div class="red">Failed to ${action} mining: ${e.message}</div>`);
+  }
+}
+
+async function updateMiningIntensity(intensity) {
+  try {
+    const resp = await fetch('/api/mining/configure', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ intensity: parseInt(intensity) })
+    });
+    const data = await resp.json();
+    
+    const intensityValue = $('mining-intensity-value');
+    if (intensityValue) intensityValue.textContent = `${intensity}%`;
+    
+  } catch(e) {
+    console.error('Failed to update mining intensity:', e);
+  }
+}
+
+function startMiningRefresh() {
+  if (_miningRefreshInterval) return;
+  _miningRefreshInterval = setInterval(loadMiningStatus, 5000); // Every 5 seconds
+}
+
+function stopMiningRefresh() {
+  if (_miningRefreshInterval) {
+    clearInterval(_miningRefreshInterval);
+    _miningRefreshInterval = null;
+  }
+}
+
+// Auto-load mining status when tab is shown
+function onTabChange(tabId) {
+  if (tabId === 'mining') {
+    loadMiningStatus();
+    // Check if mining is running and start refresh
+    if (_miningStatus.running) {
+      startMiningRefresh();
+    }
+  } else {
+    // Stop refresh when leaving mining tab
+    stopMiningRefresh();
+  }
+}
+
+// Hook into tab navigation
+const originalNavHandler = document.querySelectorAll('.nav-item');
+originalNavHandler.forEach(item => {
+  const origClick = item.onclick;
+  item.addEventListener('click', function() {
+    const tab = this.dataset.tab;
+    if (tab) onTabChange(tab);
+  });
+});
 
 function showModal(title, content) {
   // Remove existing modal

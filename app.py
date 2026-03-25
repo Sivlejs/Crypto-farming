@@ -346,6 +346,182 @@ def api_voice_status():
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Mining API ────────────────────────────────────────────────
+
+@app.route("/api/mining/status")
+def api_mining_status():
+    """Get PoW mining status and statistics."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy, get_mining_environment_info
+        agent = get_agent()
+        
+        # Find the PoW mining strategy in the monitor
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy:
+            status = pow_strategy.status()
+        else:
+            # Strategy not enabled, return environment info only
+            status = {
+                "name": "pow_mining",
+                "configured": False,
+                "running": False,
+                "environment": get_mining_environment_info(),
+            }
+        
+        return jsonify(status)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/start", methods=["POST"])
+def api_mining_start():
+    """Start PoW mining."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        # Find the PoW mining strategy
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if not pow_strategy:
+            return jsonify({"error": "PoW mining strategy not enabled. Set STRATEGY_POW_MINING=true"}), 400
+        
+        if pow_strategy.start_mining():
+            return jsonify({"ok": True, "message": "Mining started"})
+        else:
+            return jsonify({"error": "Failed to start mining. Check pool configuration."}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/stop", methods=["POST"])
+def api_mining_stop():
+    """Stop PoW mining."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        # Find the PoW mining strategy
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy:
+            pow_strategy.stop_mining()
+            return jsonify({"ok": True, "message": "Mining stopped"})
+        else:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pause", methods=["POST"])
+def api_mining_pause():
+    """Temporarily pause mining (keeps pool connection)."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy:
+            pow_strategy.pause_mining()
+            return jsonify({"ok": True, "message": "Mining paused"})
+        else:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/resume", methods=["POST"])
+def api_mining_resume():
+    """Resume paused mining."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy:
+            pow_strategy.resume_mining()
+            return jsonify({"ok": True, "message": "Mining resumed"})
+        else:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/configure", methods=["POST"])
+def api_mining_configure():
+    """
+    Update mining parameters.
+    
+    Request JSON: { "intensity": 50, "max_cpu_percent": 80 }
+    """
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        data = request.get_json(force=True) or {}
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if not pow_strategy:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+        
+        updated = []
+        
+        if "intensity" in data:
+            intensity = int(data["intensity"])
+            pow_strategy.update_intensity(intensity)
+            updated.append(f"intensity={intensity}")
+        
+        if "threads" in data:
+            threads = int(data["threads"])
+            pow_strategy.update_threads(threads)
+            updated.append(f"threads={threads} (requires restart)")
+        
+        return jsonify({
+            "ok": True,
+            "updated": updated,
+            "status": pow_strategy.status()
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/environment")
+def api_mining_environment():
+    """Get mining environment information (CPU, memory, virtual server detection)."""
+    try:
+        from nexus.strategies.pow_mining import get_mining_environment_info
+        return jsonify(get_mining_environment_info())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── Bot Control API ───────────────────────────────────────────
 
 @app.route("/api/control", methods=["POST"])

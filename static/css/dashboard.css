@@ -480,3 +480,125 @@ body{display:flex;min-height:100vh}
 .allocation-summary{
   border-left:3px solid var(--accent);
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Mining Tab Styles
+   ══════════════════════════════════════════════════════════════ */
+
+/* Mining status grid */
+.mining-status-grid{
+  display:flex;flex-direction:column;gap:.6rem;
+}
+.status-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:.5rem .7rem;background:var(--bg3);border-radius:6px;
+  font-size:.9rem;
+}
+.status-label{color:var(--text-mid);font-weight:500}
+.status-value{color:var(--text);font-weight:600}
+.status-value.badge{
+  padding:.2rem .5rem;border-radius:4px;
+  background:rgba(0,212,255,.15);color:var(--accent);
+  font-size:.8rem;text-transform:uppercase;
+}
+
+/* Intensity slider control */
+.intensity-control{
+  display:flex;align-items:center;gap:.8rem;flex:1;justify-content:flex-end;
+}
+.intensity-control input[type="range"]{
+  width:120px;height:6px;background:var(--bg4);border-radius:3px;
+  -webkit-appearance:none;cursor:pointer;
+}
+.intensity-control input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;
+  background:var(--accent);border-radius:50%;cursor:pointer;
+  border:2px solid var(--bg2);
+}
+.intensity-control input[type="range"]::-moz-range-thumb{
+  width:16px;height:16px;background:var(--accent);
+  border-radius:50%;cursor:pointer;border:2px solid var(--bg2);
+}
+
+/* Environment info grid */
+.environment-info{padding:.3rem}
+.env-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:.8rem;margin-bottom:1rem;
+}
+.env-item{
+  display:flex;align-items:center;gap:.6rem;
+  padding:.6rem .8rem;background:var(--bg3);border-radius:6px;
+}
+.env-icon{font-size:1.1rem}
+.env-label{color:var(--text-mid);font-size:.85rem}
+.env-value{
+  margin-left:auto;font-weight:600;font-size:.9rem;
+}
+.env-value.badge{
+  padding:.2rem .5rem;border-radius:4px;font-size:.8rem;
+}
+.env-value.badge-accent{
+  background:rgba(0,212,255,.15);color:var(--accent);
+}
+.env-value.badge-dim{
+  background:var(--bg4);color:var(--text-mid);
+}
+.env-stats{
+  display:flex;gap:2rem;padding-top:.8rem;
+  border-top:1px solid var(--border);
+}
+.env-stat{display:flex;gap:.5rem;font-size:.85rem}
+.env-stat-label{color:var(--text-mid)}
+.env-stat-value{font-weight:600;color:var(--accent)}
+
+/* Mining info content */
+.info-content{
+  padding:.3rem;line-height:1.6;font-size:.9rem;color:var(--text-mid);
+}
+.info-content p{margin:.6rem 0}
+.info-content ul{margin:.6rem 0 .6rem 1.2rem}
+.info-content li{margin:.3rem 0}
+.info-content strong{color:var(--text)}
+.info-note{
+  background:rgba(255,190,0,.1);border-left:3px solid var(--orange);
+  padding:.7rem .9rem;border-radius:0 6px 6px 0;
+  color:var(--text);
+}
+.info-supported{
+  display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;
+  margin-top:.8rem;
+}
+.info-supported .badge{
+  padding:.25rem .5rem;border-radius:4px;font-size:.8rem;font-weight:600;
+  background:rgba(0,212,255,.15);color:var(--accent);
+}
+.info-supported .badge-dim{
+  background:var(--bg4);color:var(--text-mid);
+}
+.info-supported small{color:var(--text-dim);font-size:.75rem}
+
+/* Badge colors */
+.badge-green{background:rgba(0,230,118,.15)!important;color:var(--green)!important}
+.badge-orange{background:rgba(255,145,0,.15)!important;color:var(--orange)!important}
+.badge-red{background:rgba(255,82,82,.15)!important;color:var(--red)!important}
+
+/* Button variants */
+.btn-orange{
+  background:linear-gradient(135deg,#e67e22,#d35400);
+  border:none;color:#fff;
+}
+.btn-orange:hover{background:linear-gradient(135deg,#f39c12,#e67e22)}
+
+/* KPI value colors */
+.kpi-value.green{color:var(--green)}
+.kpi-value.orange{color:var(--orange)}
+.kpi-value.red{color:var(--red)}
+
+/* Mining tab responsive */
+@media (max-width:768px){
+  .env-grid{grid-template-columns:1fr}
+  .env-stats{flex-direction:column;gap:.5rem}
+  .intensity-control{flex-direction:column;align-items:stretch}
+  .intensity-control input[type="range"]{width:100%}
+}

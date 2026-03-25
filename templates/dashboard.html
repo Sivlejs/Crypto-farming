@@ -19,6 +19,7 @@
   <nav class="sidebar-nav">
     <a class="nav-item active" data-tab="overview"    href="#">📊 Overview</a>
     <a class="nav-item"        data-tab="strategies"  href="#">⚡ Strategies</a>
+    <a class="nav-item"        data-tab="mining"      href="#">⛏️ Mining</a>
     <a class="nav-item"        data-tab="pools"       href="#">🏊 Pool Analysis</a>
     <a class="nav-item"        data-tab="trades"      href="#">📋 Trades</a>
     <a class="nav-item"        data-tab="payout"      href="#">💸 Payout</a>
@@ -137,6 +138,189 @@
       <div class="card">
         <div class="card-head">🔥 Top Opportunities (All Time)</div>
         <div id="top-opps" class="opp-ticker"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ TAB: MINING ════════════════════════════ -->
+  <div id="tab-mining" class="tab-content">
+    <div class="page-header">
+      <h1>⛏️ Proof of Work Mining</h1>
+      <div class="header-actions">
+        <button id="mining-start-btn" class="btn btn-green" onclick="miningControl('start')">▶ Start Mining</button>
+        <button id="mining-stop-btn" class="btn btn-red" onclick="miningControl('stop')" style="display:none">■ Stop Mining</button>
+        <button id="mining-pause-btn" class="btn btn-orange" onclick="miningControl('pause')" style="display:none">⏸ Pause</button>
+        <button id="mining-resume-btn" class="btn btn-green" onclick="miningControl('resume')" style="display:none">▶ Resume</button>
+        <button class="btn btn-dim" onclick="loadMiningStatus()">↺ Refresh</button>
+      </div>
+    </div>
+
+    <!-- Mining KPIs -->
+    <div class="kpi-row">
+      <div class="kpi" id="mining-kpi-hashrate">
+        <div class="kpi-label">Hashrate</div>
+        <div class="kpi-value">0 H/s</div>
+        <div class="kpi-sub">current speed</div>
+      </div>
+      <div class="kpi" id="mining-kpi-shares">
+        <div class="kpi-label">Shares</div>
+        <div class="kpi-value">0/0</div>
+        <div class="kpi-sub">accepted/submitted</div>
+      </div>
+      <div class="kpi" id="mining-kpi-earnings">
+        <div class="kpi-label">Est. Earnings</div>
+        <div class="kpi-value">$0.00</div>
+        <div class="kpi-sub">this session</div>
+      </div>
+      <div class="kpi" id="mining-kpi-uptime">
+        <div class="kpi-label">Mining Uptime</div>
+        <div class="kpi-value">0:00:00</div>
+        <div class="kpi-sub">session duration</div>
+      </div>
+      <div class="kpi" id="mining-kpi-status">
+        <div class="kpi-label">Status</div>
+        <div class="kpi-value">Offline</div>
+        <div class="kpi-sub">connection state</div>
+      </div>
+      <div class="kpi" id="mining-kpi-cpu">
+        <div class="kpi-label">CPU Usage</div>
+        <div class="kpi-value">0%</div>
+        <div class="kpi-sub">current load</div>
+      </div>
+    </div>
+
+    <!-- Mining Status & Config -->
+    <div class="two-col">
+      <!-- Pool Connection -->
+      <div class="card">
+        <div class="card-head">🔗 Pool Connection</div>
+        <div id="mining-pool-status" class="mining-status-grid">
+          <div class="status-row">
+            <span class="status-label">Pool:</span>
+            <span id="mining-pool-url" class="status-value">Not configured</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Worker:</span>
+            <span id="mining-worker" class="status-value">–</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Algorithm:</span>
+            <span id="mining-algorithm" class="status-value badge">SHA256</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Difficulty:</span>
+            <span id="mining-difficulty" class="status-value">–</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Accept Rate:</span>
+            <span id="mining-accept-rate" class="status-value">–</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Miner Configuration -->
+      <div class="card">
+        <div class="card-head">⚙️ Miner Configuration</div>
+        <div id="mining-config" class="mining-status-grid">
+          <div class="status-row">
+            <span class="status-label">Threads:</span>
+            <span id="mining-threads" class="status-value">Auto</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Intensity:</span>
+            <div class="intensity-control">
+              <input type="range" id="mining-intensity-slider" min="1" max="100" value="50" 
+                     onchange="updateMiningIntensity(this.value)">
+              <span id="mining-intensity-value">50%</span>
+            </div>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Batch Size:</span>
+            <span id="mining-batch-size" class="status-value">–</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Total Hashes:</span>
+            <span id="mining-total-hashes" class="status-value">0</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Adaptive Mode:</span>
+            <span id="mining-adaptive" class="status-value badge badge-green">Enabled</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Virtual Server Environment -->
+    <div class="card">
+      <div class="card-head">🖥️ Virtual Server Environment</div>
+      <div class="environment-info">
+        <div class="env-grid">
+          <div class="env-item">
+            <span class="env-icon">💻</span>
+            <span class="env-label">Environment:</span>
+            <span id="env-type" class="env-value badge">Detecting...</span>
+          </div>
+          <div class="env-item">
+            <span class="env-icon">🔢</span>
+            <span class="env-label">CPU Cores:</span>
+            <span id="env-cpu-count" class="env-value">–</span>
+          </div>
+          <div class="env-item">
+            <span class="env-icon">📊</span>
+            <span class="env-label">CPU Load:</span>
+            <span id="env-cpu-percent" class="env-value">–</span>
+          </div>
+          <div class="env-item">
+            <span class="env-icon">💾</span>
+            <span class="env-label">Memory:</span>
+            <span id="env-memory" class="env-value">–</span>
+          </div>
+          <div class="env-item">
+            <span class="env-icon">🎯</span>
+            <span class="env-label">Optimal Threads:</span>
+            <span id="env-optimal-threads" class="env-value">–</span>
+          </div>
+          <div class="env-item">
+            <span class="env-icon">⚡</span>
+            <span class="env-label">Max CPU Target:</span>
+            <span id="env-max-cpu" class="env-value">–</span>
+          </div>
+        </div>
+        <div class="env-stats">
+          <div class="env-stat">
+            <span class="env-stat-label">Intensity Adjustments:</span>
+            <span id="env-intensity-adj" class="env-stat-value">0</span>
+          </div>
+          <div class="env-stat">
+            <span class="env-stat-label">Throttle Events:</span>
+            <span id="env-throttle-events" class="env-stat-value">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mining Information -->
+    <div class="card">
+      <div class="card-head">ℹ️ About PoW Mining</div>
+      <div class="info-content">
+        <p><strong>Proof of Work mining</strong> earns cryptocurrency by solving computational puzzles. 
+           This implementation is optimized for virtual servers with:</p>
+        <ul>
+          <li><strong>Adaptive Resource Management:</strong> Automatically adjusts threads and intensity based on CPU load</li>
+          <li><strong>Memory-Efficient Batching:</strong> Optimized batch sizes for cloud environments</li>
+          <li><strong>Throttle Prevention:</strong> Stays under CPU quotas to avoid provider restrictions</li>
+          <li><strong>Stratum Protocol:</strong> Standard mining pool communication</li>
+        </ul>
+        <p class="info-note">💡 <strong>Note:</strong> CPU mining profitability is low compared to dedicated hardware. 
+           This feature is best used for testing, learning, or mining low-difficulty coins.</p>
+        <p class="info-supported">
+          <strong>Supported Algorithms:</strong> 
+          <span class="badge">SHA-256</span>
+          <span class="badge">Scrypt</span>
+          <span class="badge badge-dim">RandomX*</span>
+          <span class="badge badge-dim">KawPow*</span>
+          <small>(*requires external miner)</small>
+        </p>
       </div>
     </div>
   </div>
@@ -701,6 +885,10 @@
           <div class="setting-row toggle-row">
             <label>Liquidation</label>
             <input type="checkbox" id="set-strat-liq" checked onchange="updateStrategySetting('liquidation', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>⛏️ PoW Mining</label>
+            <input type="checkbox" id="set-strat-pow" onchange="updateStrategySetting('pow_mining', this.checked)" />
           </div>
         </div>
       </div>
