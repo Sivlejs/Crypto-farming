@@ -576,7 +576,94 @@ body{display:flex;min-height:100vh}
 .info-supported .badge-dim{
   background:var(--bg4);color:var(--text-mid);
 }
+.info-supported .badge-green{
+  background:rgba(0,230,118,.15)!important;color:var(--green)!important;
+}
 .info-supported small{color:var(--text-dim);font-size:.75rem}
+
+/* GPU Mining Section */
+.gpu-mining-content{padding:.3rem}
+.gpu-status-row{
+  display:flex;flex-wrap:wrap;gap:1rem;margin-bottom:1rem;
+}
+.gpu-status-item{
+  display:flex;align-items:center;gap:.5rem;
+  padding:.6rem .8rem;background:var(--bg3);border-radius:6px;
+  flex:1;min-width:180px;
+}
+.gpu-devices{
+  margin:1rem 0;padding:.8rem;background:var(--bg3);border-radius:8px;
+}
+.gpu-device-placeholder{
+  color:var(--text-mid);font-size:.9rem;text-align:center;padding:.5rem;
+}
+.gpu-device{
+  display:flex;flex-wrap:wrap;align-items:center;gap:1rem;
+  padding:.8rem;background:var(--bg2);border-radius:6px;margin-bottom:.6rem;
+}
+.gpu-device:last-child{margin-bottom:0}
+.gpu-device-name{
+  font-weight:600;color:var(--text);flex:1;min-width:200px;
+}
+.gpu-device-stats{
+  display:flex;gap:1rem;flex-wrap:wrap;
+}
+.gpu-stat{
+  display:flex;flex-direction:column;align-items:center;
+  padding:.4rem .7rem;background:var(--bg4);border-radius:4px;
+  min-width:70px;
+}
+.gpu-stat-value{font-weight:600;color:var(--accent);font-size:.95rem}
+.gpu-stat-label{font-size:.7rem;color:var(--text-mid);text-transform:uppercase}
+.gpu-stat.temp-high .gpu-stat-value{color:var(--orange)}
+.gpu-stat.temp-critical .gpu-stat-value{color:var(--red)}
+
+/* Profit Switching Section */
+.profit-switching-section{
+  margin-top:1rem;padding:1rem;background:var(--bg3);border-radius:8px;
+}
+.section-header{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:.8rem;font-weight:600;color:var(--text);
+}
+.toggle-switch{position:relative;display:inline-block;width:44px;height:24px}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{
+  position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+  background-color:var(--bg4);transition:.3s;border-radius:24px;
+}
+.toggle-slider:before{
+  position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;
+  background-color:var(--text-mid);transition:.3s;border-radius:50%;
+}
+input:checked + .toggle-slider{background-color:var(--green)}
+input:checked + .toggle-slider:before{transform:translateX(20px);background-color:#fff}
+
+.profitability-grid{margin-top:.6rem}
+.profit-row{
+  display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:.5rem;
+  padding:.5rem .7rem;border-radius:4px;font-size:.85rem;
+}
+.profit-row.profit-header{
+  background:var(--bg4);font-weight:600;color:var(--text-mid);
+  text-transform:uppercase;font-size:.75rem;
+}
+.profit-row:not(.profit-header){background:var(--bg2);margin-top:.4rem}
+.profit-row .badge{padding:.15rem .4rem;font-size:.75rem;border-radius:3px}
+.profit-row .badge-mining{background:rgba(0,230,118,.15);color:var(--green)}
+
+/* External Miners */
+.external-miners-section{
+  margin-top:1rem;padding:.6rem .8rem;background:var(--bg3);border-radius:6px;
+  display:flex;align-items:center;gap:.5rem;font-size:.85rem;
+}
+.section-label{color:var(--text-mid);font-weight:500}
+.miners-list{display:flex;gap:.4rem;flex-wrap:wrap}
+.miners-list .badge{
+  padding:.2rem .4rem;border-radius:4px;font-size:.8rem;
+  background:rgba(0,212,255,.12);color:var(--accent);
+}
+.miners-list .badge-available{background:rgba(0,230,118,.12);color:var(--green)}
 
 /* Badge colors */
 .badge-green{background:rgba(0,230,118,.15)!important;color:var(--green)!important}

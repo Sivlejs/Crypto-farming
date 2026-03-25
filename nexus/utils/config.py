@@ -108,11 +108,11 @@ class Config:
     MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", "")
     # Mining pool password (usually 'x' or empty)
     MINING_POOL_PASSWORD: str = os.getenv("MINING_POOL_PASSWORD", "x")
-    # Mining algorithm: sha256, scrypt, ethash, randomx, kawpow
+    # Mining algorithm: sha256, scrypt, ethash, etchash, kawpow, randomx, autolykos2, kheavyhash
     MINING_ALGORITHM: str = os.getenv("MINING_ALGORITHM", "sha256")
     # Number of CPU threads for mining (0 = auto-detect)
     MINING_THREADS: int = _int("MINING_THREADS", 0)
-    # Mining intensity (1-100, affects CPU usage)
+    # Mining intensity (1-100, affects CPU/GPU usage)
     MINING_INTENSITY: int = _int("MINING_INTENSITY", 50)
     # Payout address for mining rewards
     MINING_PAYOUT_ADDRESS: str = os.getenv("MINING_PAYOUT_ADDRESS", "")
@@ -120,7 +120,25 @@ class Config:
     # Enable adaptive resource management (auto-adjusts threads/intensity)
     MINING_ADAPTIVE_MODE: bool = _bool("MINING_ADAPTIVE_MODE", True)
     # Maximum CPU usage percentage for mining (for throttling)
-    MINING_MAX_CPU_PERCENT: float = float(os.getenv("MINING_MAX_CPU_PERCENT", "80.0"))
+    MINING_MAX_CPU_PERCENT: float = _float("MINING_MAX_CPU_PERCENT", 80.0)
+    
+    # ── GPU Mining Settings ───────────────────────────────────
+    # Enable GPU mining (requires OpenCL/CUDA and external miner)
+    MINING_USE_GPU: bool = _bool("MINING_USE_GPU", True)
+    # GPU device IDs to use (comma-separated, empty = all)
+    MINING_GPU_DEVICES: str = os.getenv("MINING_GPU_DEVICES", "")
+    # Expected GPU hashrate for profitability calculations (MH/s)
+    MINING_EXPECTED_HASHRATE_MHS: float = _float("MINING_EXPECTED_HASHRATE_MHS", 30.0)
+    # GPU power consumption estimate (watts)
+    MINING_GPU_POWER_WATTS: float = _float("MINING_GPU_POWER_WATTS", 120.0)
+    # Electricity cost per kWh for profit calculations
+    MINING_ELECTRICITY_COST_KWH: float = _float("MINING_ELECTRICITY_COST_KWH", 0.10)
+    # Backup mining pools (comma-separated stratum URLs)
+    MINING_BACKUP_POOLS: str = os.getenv("MINING_BACKUP_POOLS", "")
+    # Enable automatic profit switching to most profitable coin
+    MINING_PROFIT_SWITCHING: bool = _bool("MINING_PROFIT_SWITCHING", False)
+    # Minimum profit improvement % to trigger coin switch
+    MINING_PROFIT_SWITCH_THRESHOLD: float = _float("MINING_PROFIT_SWITCH_THRESHOLD", 10.0)
 
     # ── Speed / MEV settings ──────────────────────────────────
 
@@ -234,5 +252,20 @@ class Config:
                 "threads": cls.MINING_THREADS or "auto",
                 "intensity": cls.MINING_INTENSITY,
                 "payout_address": cls.MINING_PAYOUT_ADDRESS or "not set",
+                "adaptive_mode": cls.MINING_ADAPTIVE_MODE,
+                "max_cpu_percent": cls.MINING_MAX_CPU_PERCENT,
+                # GPU mining configuration
+                "gpu": {
+                    "enabled": cls.MINING_USE_GPU,
+                    "devices": cls.MINING_GPU_DEVICES or "all",
+                    "expected_hashrate_mhs": cls.MINING_EXPECTED_HASHRATE_MHS,
+                    "power_watts": cls.MINING_GPU_POWER_WATTS,
+                    "electricity_cost_kwh": cls.MINING_ELECTRICITY_COST_KWH,
+                },
+                "profit_switching": {
+                    "enabled": cls.MINING_PROFIT_SWITCHING,
+                    "threshold_percent": cls.MINING_PROFIT_SWITCH_THRESHOLD,
+                },
+                "backup_pools": bool(cls.MINING_BACKUP_POOLS),
             },
         }

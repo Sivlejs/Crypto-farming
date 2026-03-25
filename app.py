@@ -514,10 +514,307 @@ def api_mining_configure():
 
 @app.route("/api/mining/environment")
 def api_mining_environment():
-    """Get mining environment information (CPU, memory, virtual server detection)."""
+    """Get mining environment information (CPU, memory, GPU, virtual server detection)."""
     try:
         from nexus.strategies.pow_mining import get_mining_environment_info
         return jsonify(get_mining_environment_info())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/gpu/devices")
+def api_mining_gpu_devices():
+    """Get detailed GPU device information."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy:
+            devices = pow_strategy.get_gpu_devices()
+            return jsonify({
+                "ok": True,
+                "devices": devices,
+                "count": len(devices),
+            })
+        else:
+            # Try to get devices directly from gpu_mining module
+            try:
+                from nexus.strategies.gpu_mining import get_gpu_mining_info
+                info = get_gpu_mining_info()
+                return jsonify({
+                    "ok": True,
+                    "devices": info.get("devices", []),
+                    "count": info.get("gpu_count", 0),
+                })
+            except ImportError:
+                return jsonify({
+                    "ok": True,
+                    "devices": [],
+                    "count": 0,
+                    "message": "GPU mining module not available"
+                })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/profitability")
+def api_mining_profitability():
+    """Get coin profitability data for profit switching."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if pow_strategy and hasattr(pow_strategy, '_profit_switcher') and pow_strategy._profit_switcher:
+            profitability = pow_strategy._profit_switcher.get_all_profitability()
+            best = pow_strategy._profit_switcher.get_most_profitable()
+            return jsonify({
+                "ok": True,
+                "coins": profitability,
+                "most_profitable": best.to_dict() if best else None,
+            })
+        else:
+            return jsonify({
+                "ok": True,
+                "coins": [],
+                "most_profitable": None,
+                "message": "Profit switching not available"
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/switch_coin", methods=["POST"])
+def api_mining_switch_coin():
+    """Switch mining to a different coin."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        data = request.get_json(force=True) or {}
+        coin = data.get("coin", "").upper()
+        
+        if not coin:
+            return jsonify({"error": "Coin symbol required"}), 400
+        
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if not pow_strategy:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+        
+        if pow_strategy.switch_coin(coin):
+            return jsonify({
+                "ok": True,
+                "message": f"Switched to mining {coin}",
+                "coin": coin,
+            })
+        else:
+            return jsonify({"error": f"Failed to switch to {coin}"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/profit_switching", methods=["POST"])
+def api_mining_profit_switching():
+    """Enable or disable automatic profit switching."""
+    try:
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        data = request.get_json(force=True) or {}
+        enabled = data.get("enabled", True)
+        threshold = data.get("threshold_percent", 10.0)
+        
+        agent = get_agent()
+        
+        pow_strategy = None
+        for strategy in agent.monitor._strategies:
+            if isinstance(strategy, PoWMiningStrategy):
+                pow_strategy = strategy
+                break
+        
+        if not pow_strategy:
+            return jsonify({"error": "PoW mining strategy not enabled"}), 400
+        
+        if enabled:
+            pow_strategy.enable_profit_switching(threshold)
+            return jsonify({
+                "ok": True,
+                "message": f"Profit switching enabled (threshold: {threshold}%)",
+            })
+        else:
+            pow_strategy.disable_profit_switching()
+            return jsonify({
+                "ok": True,
+                "message": "Profit switching disabled",
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools")
+def api_mining_pools():
+    """Get available mining pools for each algorithm."""
+    try:
+        from nexus.strategies.pool_manager import (
+            get_pool_manager,
+            get_available_algorithms,
+            MINING_POOLS
+        )
+        
+        manager = get_pool_manager()
+        algorithms = get_available_algorithms()
+        
+        pools_data = {}
+        for algo in algorithms:
+            pools_data[algo] = manager.get_pools_for_algorithm(algo)
+        
+        return jsonify({
+            "ok": True,
+            "algorithms": algorithms,
+            "pools": pools_data,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/test", methods=["POST"])
+def api_mining_pools_test():
+    """Test connection to a mining pool."""
+    try:
+        from nexus.strategies.pool_manager import get_pool_manager
+        
+        data = request.get_json(force=True) or {}
+        pool_url = data.get("pool_url", "")
+        
+        if not pool_url:
+            return jsonify({"error": "pool_url required"}), 400
+        
+        manager = get_pool_manager()
+        result = manager.test_pool(pool_url)
+        
+        return jsonify({
+            "ok": result.success,
+            "pool_url": result.pool_url,
+            "latency_ms": round(result.latency_ms, 1),
+            "error": result.error_message if not result.success else None,
+            "server_version": result.server_version,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/best")
+def api_mining_pools_best():
+    """Find the best (lowest latency) pool for an algorithm."""
+    try:
+        from nexus.strategies.pool_manager import get_pool_manager
+        
+        algorithm = request.args.get("algorithm", "etchash")
+        
+        manager = get_pool_manager()
+        pool_name, pool_url, latency = manager.find_best_pool(algorithm)
+        
+        if pool_url:
+            return jsonify({
+                "ok": True,
+                "algorithm": algorithm,
+                "best_pool": pool_name,
+                "pool_url": pool_url,
+                "latency_ms": round(latency, 1),
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "algorithm": algorithm,
+                "error": f"No working pools found for {algorithm}",
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/recommend")
+def api_mining_pools_recommend():
+    """Get recommended pool configuration for an algorithm and wallet."""
+    try:
+        from nexus.strategies.pool_manager import get_pool_manager
+        
+        algorithm = request.args.get("algorithm", "etchash")
+        wallet = request.args.get("wallet", "")
+        
+        if not wallet:
+            return jsonify({"error": "wallet address required"}), 400
+        
+        manager = get_pool_manager()
+        config = manager.get_recommended_pool(algorithm, wallet)
+        
+        if config:
+            return jsonify({
+                "ok": True,
+                **config,
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": f"No pools available for {algorithm}",
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/wizard/system")
+def api_mining_wizard_system():
+    """Get system info for mining setup wizard."""
+    try:
+        from mining_wizard import detect_system
+        
+        info = detect_system()
+        
+        return jsonify({
+            "ok": True,
+            "cpu_count": info.cpu_count,
+            "cpu_model": info.cpu_model,
+            "memory_gb": info.memory_gb,
+            "is_virtual": info.is_virtual,
+            "cloud_provider": info.cloud_provider,
+            "gpus": info.gpus,
+            "available_miners": info.available_miners,
+            "python_version": info.python_version,
+            "os_info": info.os_info,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/wizard/configure", methods=["POST"])
+def api_mining_wizard_configure():
+    """Apply configuration from setup wizard."""
+    try:
+        from mining_wizard import MiningSetupWizard
+        
+        data = request.get_json(force=True) or {}
+        
+        wizard = MiningSetupWizard()
+        wizard.config = data
+        wizard._save_config()
+        
+        return jsonify({
+            "ok": True,
+            "message": "Configuration saved. Restart the app to apply changes.",
+        })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
