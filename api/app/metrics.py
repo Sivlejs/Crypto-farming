@@ -27,9 +27,9 @@ def metrics():
         gpus = db.query(models.GPU).all()
         GPU_TOTAL.set(len(gpus))
 
+        worker_names = {w.id: w.name for w in workers}
         for gpu in gpus:
-            w = db.query(models.Worker).filter(models.Worker.id == gpu.worker_id).first()
-            wname = w.name if w else "unknown"
+            wname = worker_names.get(gpu.worker_id, "unknown")
             labels = (wname, str(gpu.index), gpu.name)
             if gpu.utilization_pct is not None:
                 GPU_UTIL.labels(*labels).set(gpu.utilization_pct)

@@ -48,7 +48,7 @@ def run():
             break
         except Exception as exc:
             log.warning("Registration attempt %d failed: %s", attempt + 1, exc)
-            time.sleep(5 * (attempt + 1))
+            time.sleep(min(30, 5 * (attempt + 1)))
 
     if not worker_id:
         log.error("Could not register with control plane after 10 attempts; exiting")
