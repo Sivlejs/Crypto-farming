@@ -128,7 +128,7 @@ class PriceAggregator:
     @classmethod
     def get_yield_rates(cls) -> List[dict]:
         """
-        Fetch DeFi yield rates from DeFi Llama with retry logic and fallback cache.
+        Fetch DeFi yield rates from multiple sources with fallback logic.
         Returns list of {protocol, chain, pool, apy, tvl_usd}.
         """
         now = time.time()
@@ -139,7 +139,41 @@ class PriceAggregator:
             logger.debug("Using cached yield rates (%d pools)", len(cached_pools))
             return cached_pools
 
-        # Try to fetch with exponential backoff retry
+        # Try multi-source fetcher first
+        try:
+            from nexus.protocols.pool_sources import get_pool_fetcher
+            fetcher = get_pool_fetcher()
+            pool_data_list = fetcher.fetch_all_pools()
+            
+            if pool_data_list:
+                result = []
+                for p in pool_data_list:
+                    if p.tvl_usd > 50_000 and p.apy_total > 0:
+                        result.append({
+                            "pool_id": p.pool_id,
+                            "protocol": p.protocol,
+                            "chain": p.chain,
+                            "symbol": p.symbol,
+                            "apy": round(p.apy_total, 2),
+                            "tvl_usd": p.tvl_usd,
+                            "apy_reward": round(p.apy_reward, 2),
+                            "apy_base": round(p.apy_base, 2),
+                        })
+                
+                result.sort(key=lambda x: x["apy"], reverse=True)
+                result = result[:100]  # Top 100 pools
+                
+                # Update cache on success
+                cls._yield_cache = (result, now)
+                
+                source_status = fetcher.get_source_status()
+                active_sources = sum(1 for v in source_status.values() if v)
+                logger.info("Fetched %d yield pools from %d sources", len(result), active_sources)
+                return result
+        except Exception as exc:
+            logger.warning("Multi-source fetcher failed: %s. Falling back to DeFi Llama.", exc)
+
+        # Fallback to DeFi Llama only
         last_error = None
         for attempt in range(MAX_RETRIES):
             try:
@@ -173,7 +207,7 @@ class PriceAggregator:
                 
                 # Update cache on success
                 cls._yield_cache = (result, now)
-                logger.info("Fetched %d yield pools from DeFi Llama", len(result))
+                logger.info("Fetched %d yield pools from DeFi Llama (fallback)", len(result))
                 return result
                 
             except Exception as exc:
@@ -195,5 +229,5 @@ class PriceAggregator:
             return cached_pools
         
         # No cache available
-        logger.error("DeFi Llama yield fetch failed after %d retries with no cache: %s", MAX_RETRIES, last_error)
+        logger.error("Yield fetch failed after %d retries with no cache: %s", MAX_RETRIES, last_error)
         return []
