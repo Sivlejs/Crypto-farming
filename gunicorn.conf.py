@@ -1,11 +1,16 @@
 # Gunicorn configuration for Nexus AI on Render / VPS
 # Uses eventlet async workers required by Flask-SocketIO
 
+import eventlet
+eventlet.monkey_patch()
+
 import multiprocessing
 import os
 
 # ── Binding ───────────────────────────────────────────────────
-bind    = f"0.0.0.0:{os.environ.get('PORT', '10000')}"
+# Default port 5000 for Docker/local development.
+# Render sets PORT=10000 via render.yaml environment variable.
+bind    = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 workers = 1                  # 1 worker for SocketIO (eventlet handles concurrency)
 worker_class = "eventlet"    # REQUIRED for Flask-SocketIO WebSocket support
 threads  = 1

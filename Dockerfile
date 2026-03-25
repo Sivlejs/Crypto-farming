@@ -18,5 +18,5 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
-# Run with gunicorn (eventlet for WebSocket support)
-CMD ["gunicorn", "app:app", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5000", "--timeout", "120"]
+# Run with gunicorn using config file (eventlet for WebSocket support)
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:app"]
