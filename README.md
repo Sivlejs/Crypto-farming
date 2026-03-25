@@ -68,6 +68,30 @@ Profits sweep automatically to your accounts when the threshold is reached:
 
 ## ⚡ Quick Start (Local)
 
+### Option 1: Interactive Setup Wizard (Recommended for Beginners)
+```bash
+git clone https://github.com/Sivlejs/Crypto-farming.git
+cd Crypto-farming
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# Run the interactive setup wizard - it will guide you through everything!
+python setup_wizard.py
+
+# After setup is complete, start the bot
+python app.py
+# Open http://localhost:5000
+```
+
+The **Setup Wizard** walks you through:
+- ✅ Wallet configuration (address & private key)
+- ✅ Blockchain RPC connections (Ethereum, Polygon, BSC, L2s)
+- ✅ Trading parameters (profit thresholds, gas limits, slippage)
+- ✅ Strategy selection (arbitrage, yield farming, liquidations, etc.)
+- ✅ Payout configuration (Coinbase, Lightning/Cash App, on-chain)
+- ✅ Optional AI features (GPT-4o chat, ElevenLabs voice)
+
+### Option 2: Manual Configuration
 ```bash
 git clone https://github.com/Sivlejs/Crypto-farming.git
 cd Crypto-farming
@@ -78,6 +102,8 @@ cp .env.example .env
 python app.py
 # Open http://localhost:5000
 ```
+
+📖 **See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete step-by-step instructions.**
 
 ---
 
