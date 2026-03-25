@@ -11,6 +11,8 @@ jobs:
   api:
     name: API (lint + test)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: api
@@ -32,6 +34,8 @@ jobs:
   worker:
     name: Worker (lint + test)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: worker
@@ -53,6 +57,8 @@ jobs:
   web:
     name: Web (lint + build)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: web
@@ -76,6 +82,8 @@ jobs:
   compose:
     name: docker compose (api + infra)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Start infra stack (postgres + redis + prometheus + grafana only)
