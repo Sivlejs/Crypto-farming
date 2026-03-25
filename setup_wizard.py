@@ -664,7 +664,8 @@ Configure how you want to receive your profits.
      {Colors.CYAN}python app.py{Colors.ENDC}
      
   3. Open the dashboard:
-     {Colors.CYAN}http://localhost:10000{Colors.ENDC}
+     {Colors.CYAN}http://localhost:5000{Colors.ENDC}
+     (or port 10000 if deploying to Render)
      
   4. Monitor the bot and check for any errors
   
@@ -796,7 +797,7 @@ Configure how you want to receive your profits.
         # Infrastructure
         lines.append("# ── Infrastructure ────────────────────────────────────────────")
         lines.append("REDIS_URL=redis://localhost:6379/0")
-        lines.append("PORT=10000")
+        lines.append("PORT=5000")
         lines.append("")
         
         # Logging
