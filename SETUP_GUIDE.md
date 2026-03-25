@@ -4,6 +4,28 @@ This guide will walk you through **every single step** to get your Nexus AI cryp
 
 ---
 
+## 🧙‍♂️ NEW: Interactive Setup Wizard
+
+**Don't want to read through this whole guide?** Run the interactive wizard instead!
+
+```bash
+cd Crypto-farming
+python setup_wizard.py
+```
+
+The wizard will:
+1. Ask you questions in an interactive terminal
+2. Guide you through each configuration step
+3. Validate your inputs (wallet addresses, RPC URLs, etc.)
+4. Generate your `.env` file automatically
+5. Provide clear next steps
+
+**Perfect for:** First-time users who want a guided experience.
+
+If you prefer to understand everything in detail, continue reading this guide below.
+
+---
+
 ## ⚠️ IMPORTANT WARNINGS BEFORE YOU START
 
 1. **Real Money Risk**: When you set `DRY_RUN=false`, the bot will execute REAL trades with REAL cryptocurrency

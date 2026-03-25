@@ -13,6 +13,7 @@ class OpportunityType(str, Enum):
     ARBITRAGE = "arbitrage"
     YIELD_FARMING = "yield_farming"
     LIQUIDITY_MINING = "liquidity_mining"
+    POW_MINING = "pow_mining"
 
 
 @dataclass

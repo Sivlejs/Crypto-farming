@@ -28,6 +28,7 @@ from nexus.strategies.flash_arbitrage import FlashArbitrageStrategy
 from nexus.strategies.yield_farming import YieldFarmingStrategy
 from nexus.strategies.liquidity_mining import LiquidityMiningStrategy
 from nexus.strategies.liquidation import LiquidationStrategy
+from nexus.strategies.pow_mining import PoWMiningStrategy
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -82,6 +83,18 @@ class OpportunityMonitor:
             strategies.append(LiquidityMiningStrategy(self.bm, Config))
         if Config.STRATEGY_LIQUIDATION:
             strategies.append(LiquidationStrategy(self.bm, Config))
+        if Config.STRATEGY_POW_MINING:
+            pow_strategy = PoWMiningStrategy(self.bm, Config)
+            # Auto-start PoW mining when strategy is enabled
+            # This is expected behavior for mining (continuous operation)
+            try:
+                if pow_strategy.start_mining():
+                    logger.info("PoW mining started automatically")
+                else:
+                    logger.warning("PoW mining enabled but failed to start - check configuration")
+            except Exception as e:
+                logger.error("Failed to start PoW mining: %s", e)
+            strategies.append(pow_strategy)
         logger.info("Enabled strategies: %s", [s.name for s in strategies])
         return strategies
 

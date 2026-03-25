@@ -1,12 +1,12 @@
-# ⬡ Nexus AI – Autonomous Crypto Farmer
+# ⬡ Nexus AI – Autonomous Crypto Farmer & Miner
 
-> A fully autonomous, self-learning DeFi farming AI that finds, executes, and earns from crypto opportunities across **7 blockchains** using **13 trading strategies** — with real-time voice chat, automatic profit payouts, and a live dashboard. Deploys in one click on [Render](https://render.com).
+> A fully autonomous, self-learning crypto farming and mining AI that finds, executes, and earns from crypto opportunities across **7 blockchains** using **14 strategies** (including PoW mining) — with real-time voice chat, automatic profit payouts, and a live dashboard. Deploys in one click on [Render](https://render.com).
 
 ---
 
-## �� Features at a Glance
+## 🚀 Features at a Glance
 
-### 13 Farming Strategies
+### 14 Farming & Mining Strategies
 | Strategy | Type | Description |
 |---|---|---|
 | **DEX Arbitrage** | ⚡ Instant | Price gaps between Uniswap/SushiSwap/PancakeSwap |
@@ -22,9 +22,19 @@
 | **Perpetuals Funding Rate** | 🔶 Normal | Earn funding rates on GMX/dYdX when positive |
 | **Vault Optimizer** | ✅ Deferred | Yearn/Beefy/Convex best-APY auto-compounder |
 | **Governance Farming** | ✅ Deferred | CRV/CVX/veToken lock-and-earn strategies |
+| **⛏️ PoW Mining** | 🔄 Continuous | CPU/GPU mining via Stratum protocol (Bitcoin, Litecoin, Monero) |
 
 ### 7 Supported Blockchains
 Ethereum · BNB Smart Chain · Polygon · **Arbitrum** · **Optimism** · **Base** · **Avalanche**
+
+### ⛏️ PoW Mining (NEW)
+Works like dedicated mining machines you can buy — connects to pools and mines crypto:
+- **Stratum Protocol** — Standard mining pool communication protocol
+- **Multiple Algorithms** — SHA-256 (Bitcoin), Scrypt (Litecoin/Dogecoin), RandomX (Monero), KawPow (Ravencoin)
+- **CPU Mining** — Built-in CPU miner with configurable thread count and intensity
+- **GPU Mining** — Supports external miners (XMRig, CGMiner, T-Rex) for higher hashrate
+- **Pool Stats** — Real-time hashrate, share acceptance rate, estimated earnings
+- **Auto-start** — Mining starts automatically when enabled and configured
 
 ### Speed & MEV Protection
 - **Flashbots private bundles** — transactions never appear in the public mempool; no front-running
@@ -68,6 +78,30 @@ Profits sweep automatically to your accounts when the threshold is reached:
 
 ## ⚡ Quick Start (Local)
 
+### Option 1: Interactive Setup Wizard (Recommended for Beginners)
+```bash
+git clone https://github.com/Sivlejs/Crypto-farming.git
+cd Crypto-farming
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# Run the interactive setup wizard - it will guide you through everything!
+python setup_wizard.py
+
+# After setup is complete, start the bot
+python app.py
+# Open http://localhost:5000
+```
+
+The **Setup Wizard** walks you through:
+- ✅ Wallet configuration (address & private key)
+- ✅ Blockchain RPC connections (Ethereum, Polygon, BSC, L2s)
+- ✅ Trading parameters (profit thresholds, gas limits, slippage)
+- ✅ Strategy selection (arbitrage, yield farming, liquidations, etc.)
+- ✅ Payout configuration (Coinbase, Lightning/Cash App, on-chain)
+- ✅ Optional AI features (GPT-4o chat, ElevenLabs voice)
+
+### Option 2: Manual Configuration
 ```bash
 git clone https://github.com/Sivlejs/Crypto-farming.git
 cd Crypto-farming
@@ -78,6 +112,8 @@ cp .env.example .env
 python app.py
 # Open http://localhost:5000
 ```
+
+📖 **See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete step-by-step instructions.**
 
 ---
 
@@ -139,6 +175,18 @@ Copy `.env.example` to `.env` and fill in your values. Critical variables:
 | `OPENAI_MODEL` | Model to use (default: `gpt-4o`) |
 | `ELEVENLABS_API_KEY` | Neural TTS for Nexus voice (optional — browser TTS fallback) |
 | `ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (default: "Rachel") |
+
+### ⛏️ PoW Mining
+| Variable | Default | Description |
+|---|---|---|
+| `STRATEGY_POW_MINING` | `false` | Enable PoW cryptocurrency mining |
+| `MINING_POOL_URL` | | Mining pool URL (e.g. `stratum+tcp://stratum.slushpool.com:3333`) |
+| `MINING_POOL_USER` | | Pool username/worker name (e.g. `username.worker1`) |
+| `MINING_POOL_PASSWORD` | `x` | Pool password (usually `x` or empty) |
+| `MINING_ALGORITHM` | `sha256` | Algorithm: `sha256`, `scrypt`, `ethash`, `randomx`, `kawpow` |
+| `MINING_THREADS` | `0` | CPU threads (0 = auto-detect all cores) |
+| `MINING_INTENSITY` | `50` | Mining intensity 1-100 (affects CPU usage) |
+| `MINING_PAYOUT_ADDRESS` | | Wallet address for mining rewards |
 
 ### Additional Chains (Enable L2s)
 | Variable | Default | Description |
