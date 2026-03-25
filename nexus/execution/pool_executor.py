@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from web3 import Web3
 
 from nexus.blockchain import BlockchainManager
-from nexus.protocols.pool_sources import get_pool_fetcher, PoolData
+from nexus.protocols.pool_sources import get_pool_fetcher, PoolData, MIN_TVL_USD
 from nexus.learning.pool_analyzer import get_pool_analyzer, PoolMetrics
 from nexus.learning.pool_optimizer import get_pool_optimizer, PoolPosition, OptimizationDecision
 from nexus.timing.gas_oracle import get_gas_oracle
@@ -1032,10 +1032,11 @@ class PoolExecutor:
             ranked_ids = set()
         
         # Filter and score pools
+        # Use MIN_TVL_USD as the base minimum, with higher minimums for lower risk levels
         risk_multipliers = {
-            "low": {"min_tvl": 10_000_000, "max_apy": 20, "min_confidence": 0.7},
-            "medium": {"min_tvl": 1_000_000, "max_apy": 50, "min_confidence": 0.5},
-            "high": {"min_tvl": 100_000, "max_apy": 200, "min_confidence": 0.3},
+            "low": {"min_tvl": MIN_TVL_USD * 20, "max_apy": 100, "min_confidence": 0.7},     # $1M TVL
+            "medium": {"min_tvl": MIN_TVL_USD * 4, "max_apy": 200, "min_confidence": 0.5},   # $200k TVL
+            "high": {"min_tvl": MIN_TVL_USD, "max_apy": 500, "min_confidence": 0.3},         # $50k TVL
         }
         
         params = risk_multipliers.get(risk_level, risk_multipliers["medium"])

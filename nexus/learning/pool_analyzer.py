@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import requests
 
-from nexus.protocols.pool_sources import get_pool_fetcher, PoolData
+from nexus.protocols.pool_sources import get_pool_fetcher, PoolData, MIN_TVL_USD
 from nexus.utils.config import Config
 from nexus.utils.logger import get_logger
 
@@ -386,9 +386,9 @@ class PoolAnalyzer:
                 if chain not in CHAIN_RISK_TIERS:
                     continue
 
-                # Skip very low TVL pools (< $100k)
+                # Skip very low TVL pools (below configured minimum)
                 tvl = p.tvl_usd
-                if tvl < 100_000:
+                if tvl < MIN_TVL_USD:
                     continue
 
                 pool_id = p.pool_id
@@ -471,7 +471,7 @@ class PoolAnalyzer:
                     continue
 
                 tvl = float(p.get("tvlUsd", 0) or 0)
-                if tvl < 100_000:
+                if tvl < MIN_TVL_USD:
                     continue
 
                 pool_id = p.get("pool", "")
