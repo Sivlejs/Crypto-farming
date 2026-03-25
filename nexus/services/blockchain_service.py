@@ -183,9 +183,9 @@ def get_gas_price(chain: str):
         oracle_data = {
             "is_cheap": _gas_oracle.is_cheap_now(),
             "should_wait": _gas_oracle.should_wait(),
-            "percentile_25": _gas_oracle._percentile(25) if hasattr(_gas_oracle, '_percentile') else None,
-            "percentile_50": _gas_oracle._percentile(50) if hasattr(_gas_oracle, '_percentile') else None,
-            "percentile_75": _gas_oracle._percentile(75) if hasattr(_gas_oracle, '_percentile') else None,
+            "percentile_25": _gas_oracle.get_percentile(25),
+            "percentile_50": _gas_oracle.get_percentile(50),
+            "percentile_75": _gas_oracle.get_percentile(75),
         }
 
     return jsonify({

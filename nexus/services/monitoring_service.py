@@ -221,20 +221,46 @@ class AlertManager:
         return triggered
 
     def _evaluate_condition(self, condition: str, metrics: Dict) -> bool:
-        """Evaluate an alert condition against metrics."""
+        """
+        Safely evaluate an alert condition against metrics.
+        
+        Only supports simple comparisons: >, <, >=, <=, ==, !=
+        """
         try:
-            # Simple evaluation - replace metric names with values
-            expr = condition
-            for key, value in metrics.items():
-                if key in expr:
-                    expr = expr.replace(key, str(value))
-
-            # Safety: only allow simple comparisons
-            if any(c in expr for c in ["import", "eval", "exec", "open", "__"]):
+            import re
+            
+            # Parse condition - only support simple format: "metric_name operator value"
+            pattern = r'^(\w+)\s*(>|<|>=|<=|==|!=)\s*([\d.]+)$'
+            match = re.match(pattern, condition.strip())
+            
+            if not match:
                 return False
-
-            return eval(expr)  # nosec B307 - controlled input
-        except Exception:
+            
+            metric_name, operator, threshold_str = match.groups()
+            threshold = float(threshold_str)
+            
+            # Get metric value
+            if metric_name not in metrics:
+                return False
+            
+            metric_value = float(metrics[metric_name])
+            
+            # Evaluate comparison safely
+            if operator == '>':
+                return metric_value > threshold
+            elif operator == '<':
+                return metric_value < threshold
+            elif operator == '>=':
+                return metric_value >= threshold
+            elif operator == '<=':
+                return metric_value <= threshold
+            elif operator == '==':
+                return metric_value == threshold
+            elif operator == '!=':
+                return metric_value != threshold
+            
+            return False
+        except (ValueError, TypeError, KeyError):
             return False
 
     def get_active_alerts(self) -> List[Dict]:

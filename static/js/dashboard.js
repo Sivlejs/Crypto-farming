@@ -1524,8 +1524,9 @@ async function showPoolDetails(poolId) {
 }
 
 function addToAllocation(poolId) {
-  toast(`Pool ${poolId.slice(0, 20)}... added to allocation`, 'info');
-  // Would implement allocation builder
+  // TODO: Implement allocation builder functionality
+  // For now, show a toast with instructions to use the allocation modal
+  toast(`To allocate to this pool, use the "Get Allocation" button to generate an AI recommendation including this pool.`, 'info');
 }
 
 async function showAllocationModal() {

@@ -39,9 +39,14 @@ logger = get_logger(__name__)
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "pool_history.db"
 try:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-except OSError:
+except OSError as e:
+    logger.warning("Cannot create pool history directory %s: %s. Using /tmp fallback.", DB_PATH.parent, e)
     DB_PATH = Path("/tmp/nexus_data/pool_history.db")
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as fallback_error:
+        logger.error("Cannot create fallback pool history directory %s: %s", DB_PATH.parent, fallback_error)
+        # Continue without raising - will fail gracefully when DB is accessed
 
 # DeFiLlama API endpoints
 DEFILLAMA_POOLS_URL = "https://yields.llama.fi/pools"
