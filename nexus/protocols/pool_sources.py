@@ -195,16 +195,21 @@ def fetch_defillama_pools() -> List[PoolData]:
             if tvl < MIN_TVL_USD:
                 continue
             
+            apy_base = _safe_float(p.get("apyBase", 0))
+            apy_reward = _safe_float(p.get("apyReward", 0))
+            
+            # Use explicit apy if available, otherwise compute from base + reward
             apy_total = _safe_float(p.get("apy", 0))
+            if apy_total <= 0:
+                apy_total = apy_base + apy_reward
+            
+            # Skip pools with no yield
             if apy_total <= 0:
                 continue
             
             pool_id = p.get("pool", "")
             if not pool_id:
                 continue
-            
-            apy_base = _safe_float(p.get("apyBase", 0))
-            apy_reward = _safe_float(p.get("apyReward", 0))
             
             # Parse exposure tokens from symbol
             symbol = p.get("symbol", "")
@@ -682,10 +687,20 @@ class MultiSourcePoolFetcher:
         self._cache = unique_pools
         self._cache_time = now
         
-        logger.info(
-            "Multi-source fetch complete: %d unique pools from %d sources",
-            len(unique_pools), len(self._lock_sources)
-        )
+        # Log diagnostic info
+        if len(unique_pools) == 0:
+            logger.warning(
+                "No pools found from any source. This usually means:\n"
+                "  1. External APIs (DeFi Llama, Curve, etc.) are unreachable\n"
+                "  2. Network/DNS issues are blocking API access\n"
+                "  3. All APIs are rate-limiting requests\n"
+                "Check your network connection and API access."
+            )
+        else:
+            logger.info(
+                "Multi-source fetch complete: %d unique pools from %d sources",
+                len(unique_pools), len(self._lock_sources)
+            )
         
         return unique_pools
     
