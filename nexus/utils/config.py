@@ -99,6 +99,23 @@ class Config:
     STRATEGY_YIELD_FARMING: bool = _bool("STRATEGY_YIELD_FARMING", True)
     STRATEGY_LIQUIDITY_MINING: bool = _bool("STRATEGY_LIQUIDITY_MINING", True)
     STRATEGY_LIQUIDATION: bool = _bool("STRATEGY_LIQUIDATION", True)
+    STRATEGY_POW_MINING: bool = _bool("STRATEGY_POW_MINING", False)
+
+    # ── PoW Mining settings ───────────────────────────────────
+    # Mining pool URL (Stratum protocol)
+    MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "")
+    # Mining pool username/worker name
+    MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", "")
+    # Mining pool password (usually 'x' or empty)
+    MINING_POOL_PASSWORD: str = os.getenv("MINING_POOL_PASSWORD", "x")
+    # Mining algorithm: sha256, scrypt, ethash, randomx, kawpow
+    MINING_ALGORITHM: str = os.getenv("MINING_ALGORITHM", "sha256")
+    # Number of CPU threads for mining (0 = auto-detect)
+    MINING_THREADS: int = _int("MINING_THREADS", 0)
+    # Mining intensity (1-100, affects CPU usage)
+    MINING_INTENSITY: int = _int("MINING_INTENSITY", 50)
+    # Payout address for mining rewards
+    MINING_PAYOUT_ADDRESS: str = os.getenv("MINING_PAYOUT_ADDRESS", "")
 
     # ── Speed / MEV settings ──────────────────────────────────
 
@@ -174,6 +191,7 @@ class Config:
                 "yield_farming":      cls.STRATEGY_YIELD_FARMING,
                 "liquidity_mining":   cls.STRATEGY_LIQUIDITY_MINING,
                 "liquidation":        cls.STRATEGY_LIQUIDATION,
+                "pow_mining":         cls.STRATEGY_POW_MINING,
             },
             "chains": {
                 "ethereum":  cls.CHAIN_ETH,
@@ -203,5 +221,13 @@ class Config:
                 "coinbase_api": bool(cls.COINBASE_API_KEY and cls.COINBASE_API_SECRET),
                 "lightning_address": cls.PAYOUT_LIGHTNING_ADDRESS or "not set",
                 "lightning_node": bool(cls.LIGHTNING_NODE_URL),
+            },
+            "mining": {
+                "enabled": cls.STRATEGY_POW_MINING,
+                "pool_configured": bool(cls.MINING_POOL_URL and cls.MINING_POOL_USER),
+                "algorithm": cls.MINING_ALGORITHM,
+                "threads": cls.MINING_THREADS or "auto",
+                "intensity": cls.MINING_INTENSITY,
+                "payout_address": cls.MINING_PAYOUT_ADDRESS or "not set",
             },
         }
