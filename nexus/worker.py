@@ -105,7 +105,8 @@ def main():
                 
                 # Calculate hourly profit rate
                 uptime_hours = (time.time() - agent._start_time) / 3600 if agent._start_time else 0
-                profit_per_hour = stats.get("estimated_total_profit_usd", 0) / max(0.1, uptime_hours)
+                # Avoid misleading metrics during first few minutes - require at least 0.5 hours (30 min)
+                profit_per_hour = stats.get("estimated_total_profit_usd", 0) / uptime_hours if uptime_hours >= 0.5 else 0.0
                 
                 # Standard heartbeat every 30 seconds
                 logger.info(

@@ -54,16 +54,35 @@ class TransactionExecutor:
         """Attach the NexusBrain for volatility-aware slippage."""
         self._brain = brain
     
-    def get_dynamic_slippage(self) -> float:
+    def get_dynamic_slippage(self, chain: str = "ethereum") -> float:
         """
         Calculate dynamic slippage tolerance based on market volatility.
+        
+        Parameters
+        ----------
+        chain : str
+            The blockchain chain (ethereum, bsc, polygon, etc.)
+            Used to determine the relevant native asset for volatility.
+        
         Returns slippage as a percentage (e.g., 0.5 for 0.5%).
         """
         if not self._brain:
             return Config.SLIPPAGE_PERCENT
         
+        # Map chains to their native/primary assets for volatility tracking
+        chain_to_asset = {
+            "ethereum": "ETH",
+            "bsc": "BNB",
+            "polygon": "MATIC",
+            "arbitrum": "ETH",
+            "optimism": "ETH",
+            "base": "ETH",
+            "avalanche": "AVAX",
+        }
+        asset = chain_to_asset.get(chain.lower(), "ETH")
+        
         try:
-            volatility = self._brain.classifier.volatility_pct("ETH")
+            volatility = self._brain.classifier.volatility_pct(asset)
             
             for level, params in SLIPPAGE_VOLATILITY_THRESHOLDS.items():
                 if volatility <= params["max_volatility"]:
@@ -71,8 +90,8 @@ class TransactionExecutor:
                     if dynamic_slippage != Config.SLIPPAGE_PERCENT:
                         self._slippage_adjustments += 1
                         logger.debug(
-                            "Dynamic slippage: %.2f%% (volatility=%.2f%%, level=%s)",
-                            dynamic_slippage, volatility, level,
+                            "Dynamic slippage: %.2f%% (chain=%s, asset=%s, volatility=%.2f%%, level=%s)",
+                            dynamic_slippage, chain, asset, volatility, level,
                         )
                     return dynamic_slippage
             
@@ -258,14 +277,15 @@ class TransactionExecutor:
             return None
 
         # Apply dynamic slippage tolerance based on market volatility
-        slippage_pct = self.get_dynamic_slippage()
+        # Apply dynamic slippage tolerance based on market volatility for this chain
+        slippage_pct = self.get_dynamic_slippage(chain=chain)
         slippage_factor = 1 - slippage_pct / 100
         min_amount_out_buy = int(amounts_buy[-1] * slippage_factor)
         min_amount_out_sell = int(amounts_sell[-1] * slippage_factor)
         
         logger.debug(
-            "Arbitrage slippage: %.2f%% (min_buy=%d, min_sell=%d)",
-            slippage_pct, min_amount_out_buy, min_amount_out_sell,
+            "Arbitrage slippage: %.2f%% (chain=%s, min_buy=%d, min_sell=%d)",
+            slippage_pct, chain, min_amount_out_buy, min_amount_out_sell,
         )
 
         deadline = int(time.time()) + 300  # 5-minute window

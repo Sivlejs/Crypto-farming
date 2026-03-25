@@ -89,6 +89,10 @@ class NexusBrain:
         Master go/no-go decision.
         Returns (True, reason) or (False, reason).
         """
+        # Generate unique prediction ID for tracking
+        import time as _time
+        pred_id = f"{opp.get('id', '')}_{_time.time()}"
+        
         profit = float(opp.get("estimated_profit_usd", 0) or 0)
         if profit < self.min_profit():
             self._prediction_skipped += 1
@@ -99,19 +103,27 @@ class NexusBrain:
         if ml_score < thresh:
             self._prediction_skipped += 1
             self._ml_predictions.append({
+                "pred_id": pred_id,
+                "opp_id": opp.get("id", ""),
                 "score": ml_score,
                 "predicted_skip": True,
                 "actual_success": None,  # Unknown - we skipped
             })
             return False, f"ML score {ml_score:.3f} < threshold {thresh:.3f}"
 
-        # Record prediction for accuracy tracking
+        # Record prediction for accuracy tracking with unique ID
         self._ml_predictions.append({
+            "pred_id": pred_id,
+            "opp_id": opp.get("id", ""),
             "score": ml_score,
             "predicted_skip": False,
             "actual_success": None,  # Will be updated in learn()
         })
         self._prediction_executed += 1
+        
+        # Store the prediction ID in the opportunity for later matching
+        opp["_prediction_id"] = pred_id
+        
         return True, f"ML score {ml_score:.3f} ✓ profit ${profit:.4f} ✓"
 
     def learn(self, opp: dict, success: bool, actual_profit: float):
@@ -120,12 +132,30 @@ class NexusBrain:
         Call this after EVERY executed trade.
         """
         with self._lock:
-            # Update the last prediction with actual outcome
-            if self._ml_predictions:
-                last_pred = self._ml_predictions[-1]
-                if last_pred.get("actual_success") is None:
-                    last_pred["actual_success"] = success
-                    # Track accuracy
+            # Match prediction by ID if available, otherwise fall back to most recent
+            pred_id = opp.get("_prediction_id")
+            matched_pred = None
+            
+            if pred_id:
+                # Find prediction by ID
+                for pred in reversed(self._ml_predictions):
+                    if pred.get("pred_id") == pred_id and pred.get("actual_success") is None:
+                        matched_pred = pred
+                        break
+            
+            # Fallback: find most recent unresolved prediction for this opportunity
+            if not matched_pred:
+                opp_id = opp.get("id", "")
+                for pred in reversed(self._ml_predictions):
+                    if pred.get("opp_id") == opp_id and pred.get("actual_success") is None:
+                        matched_pred = pred
+                        break
+            
+            # Update matched prediction
+            if matched_pred:
+                matched_pred["actual_success"] = success
+                # Track accuracy for executed predictions only
+                if not matched_pred.get("predicted_skip", False):
                     if success:
                         self._ml_correct_predictions += 1
                     else:
@@ -142,6 +172,10 @@ class NexusBrain:
             # Retrain ML model periodically
             if self._trade_counter % RETRAIN_EVERY == 0:
                 self._retrain()
+            
+            # Trim old predictions to prevent memory growth (keep last 1000)
+            if len(self._ml_predictions) > 1000:
+                self._ml_predictions = self._ml_predictions[-500:]
 
         logger.info(
             "Brain learned: %s | profit=$%.4f | trades=%d | ML accuracy=%.1f%%",

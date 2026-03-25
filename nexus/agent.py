@@ -216,12 +216,18 @@ class NexusAgent:
         Instead of skipping, we queue it with the trade scheduler.
         """
         self._deferred_count += 1
-        current_gas = self.scheduler._oracle.current_base_fee() or 0
-        target_gas = self.scheduler._oracle._percentile(25) if hasattr(self.scheduler._oracle, '_percentile') else current_gas * 0.8
         
-        # Estimate potential gas savings
+        # Use public scheduler methods instead of accessing private attributes
+        current_gas = self.scheduler.get_current_gas()
+        target_gas = self.scheduler.get_target_gas()
+        
+        # Estimate potential gas savings in USD
+        # Calculation: (gas_diff_gwei) * (gas_units_estimate ~200k) * (ETH_price ~$3000) / 1e9
+        # Simplified: gas_diff * 0.0001 assumes ~200k gas units at ~$3000/ETH = $0.0006/gwei
+        # This is a rough estimate; actual savings depend on specific transaction gas usage
+        GAS_TO_USD_FACTOR = 0.0006  # Approximate USD per gwei saved (200k gas at ~$3000/ETH)
         if current_gas > target_gas:
-            savings_estimate = (current_gas - target_gas) * 0.0001  # Rough USD estimate
+            savings_estimate = (current_gas - target_gas) * GAS_TO_USD_FACTOR
             self._gas_savings_estimate += savings_estimate
         
         logger.info(

@@ -197,9 +197,17 @@ class OpportunityMonitor:
                     "Skipping %s scan (weight=%.2f, regime unfavorable)",
                     strategy.name, weight,
                 )
-        # Always run at least one strategy
+        # Fallback: if no strategies selected, pick the one with highest weight
         if not selected and self._strategies:
-            selected.append(self._strategies[0])
+            best_strategy = max(
+                self._strategies,
+                key=lambda s: weights.get(s.name, 1.0)
+            )
+            selected.append(best_strategy)
+            logger.debug(
+                "Fallback: running %s (highest weight=%.2f)",
+                best_strategy.name, weights.get(best_strategy.name, 1.0),
+            )
         return selected
     
     def _weighted_score(self, opp: Opportunity) -> float:

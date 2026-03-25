@@ -582,7 +582,7 @@ def api_efficiency():
                 "total_trades": rewards.get("total_trades", 0),
                 "successful_trades": rewards.get("successful_trades", 0),
                 "win_rate_pct": round(
-                    rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 1)) * 100, 2
+                    rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 0)) * 100, 2
                 ),
             },
             "gas_optimization": {
@@ -621,12 +621,14 @@ def api_efficiency_summary():
         
         uptime = status.get("uptime_seconds", 0)
         profit = rewards.get("estimated_total_profit_usd", 0)
+        uptime_hours = uptime / 3600
         
         return jsonify({
             "profit_usd": round(profit, 4),
-            "profit_per_hour": round(profit / max(0.1, uptime / 3600), 4),
+            # Require at least 30 min uptime for meaningful hourly rate
+            "profit_per_hour": round(profit / uptime_hours, 4) if uptime_hours >= 0.5 else 0.0,
             "win_rate_pct": round(
-                rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 1)) * 100, 2
+                rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 0)) * 100, 2
             ),
             "ml_accuracy_pct": ml_acc.get("accuracy_pct", 0),
             "regime": efficiency.get("current_regime", "unknown"),
