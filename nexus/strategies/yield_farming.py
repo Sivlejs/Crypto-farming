@@ -15,20 +15,30 @@ from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Minimum TVL filter – ignore tiny pools
-MIN_TVL_USD = 500_000
-# Minimum APY to flag as an opportunity
-MIN_APY = 5.0
+# Minimum TVL filter – ignore tiny pools (lowered to find more opportunities)
+MIN_TVL_USD = 50_000
+# Minimum APY to flag as an opportunity (lowered for realistic markets)
+MIN_APY = 1.5
 # Extra confidence when a high reward APY is on top of base APY
 REWARD_CONFIDENCE_BOOST = 0.1
 
 # Chain name aliases from DeFi Llama -> our chain keys
+# Extended to support all major chains returned by DeFi Llama API
 CHAIN_ALIASES = {
     "ethereum": "ethereum",
     "bsc": "bsc",
     "binance": "bsc",
     "polygon": "polygon",
     "matic": "polygon",
+    "arbitrum": "arbitrum",
+    "optimism": "optimism",
+    "base": "base",
+    "avalanche": "avalanche",
+    "avax": "avalanche",
+    "fantom": "fantom",
+    "ftm": "fantom",
+    "gnosis": "gnosis",
+    "xdai": "gnosis",
 }
 
 

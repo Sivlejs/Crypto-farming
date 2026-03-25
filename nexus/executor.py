@@ -31,6 +31,10 @@ logger = get_logger(__name__)
 # Minimum ETH/BNB/MATIC to keep in wallet for gas
 RESERVE_NATIVE = 0.01
 
+# Transaction execution constants
+LP_DEADLINE_SECONDS = 600  # 10 minute deadline for LP transactions
+MOCK_TX_HASH_PADDING = 60  # Padding length for simulated transaction hashes (results in 64 chars total)
+
 # Dynamic slippage thresholds based on volatility
 SLIPPAGE_VOLATILITY_THRESHOLDS = {
     "low": {"max_volatility": 1.0, "slippage": 0.3},      # Calm market: tight slippage
@@ -415,20 +419,488 @@ class TransactionExecutor:
         return final_hash if receipt.status == 1 else None
 
     def _execute_yield_farming(self, opp: Opportunity, w3: Web3) -> Optional[str]:
-        """Supply tokens to Aave to earn yield."""
+        """
+        Supply tokens to Aave or other lending protocols to earn yield.
+        
+        Uses the pool details to determine the optimal entry strategy:
+        - For Aave-based pools: direct supply to Aave V3
+        - For other protocols: log for manual entry (safety first)
+        """
         logger.info("Yield farming execution: %s", opp.description)
-        # Full Aave supply interaction would go here.
-        # For safety, log and return None unless explicitly implemented.
-        logger.info("Yield farming auto-supply: currently requires manual position entry.")
-        return None
+        details = opp.details
+        chain = opp.chain
+        protocol = details.get("protocol", "").lower()
+        
+        # Import required components
+        from nexus.protocols.aave import AaveClient, AAVE_POOL_ADDRESSES
+        from nexus.protocols.uniswap import ERC20_ABI
+        from nexus.execution.bundle_submitter import get_bundle_submitter
+        
+        # Check if this is an Aave-based pool we can auto-enter
+        aave_protocols = {"aave", "aave-v3", "aave-v2", "aave v3", "aave v2"}
+        if protocol not in aave_protocols:
+            logger.info(
+                "Protocol '%s' requires manual entry. Pool: %s (APY: %.2f%%)",
+                protocol, details.get("symbol", "unknown"), details.get("apy", 0)
+            )
+            # Return a simulated success for tracking purposes in dry run
+            if Config.DRY_RUN:
+                return "0x" + "farm" + ("0" * MOCK_TX_HASH_PADDING)
+            return None
+        
+        # Check if Aave is supported on this chain
+        if chain not in AAVE_POOL_ADDRESSES:
+            logger.warning("Aave not supported on chain %s", chain)
+            return None
+        
+        # Initialize Aave client
+        aave = AaveClient(w3, chain)
+        if not aave.is_supported():
+            logger.warning("Aave client not available for chain %s", chain)
+            return None
+        
+        # Determine which token to supply (parse from symbol)
+        symbol = details.get("symbol", "")
+        # Common token mapping for Aave markets
+        token_map = self._get_aave_token_map(chain)
+        
+        # Try to find a matching token from the symbol
+        supply_token = None
+        supply_address = None
+        for token, address in token_map.items():
+            if token.lower() in symbol.lower():
+                supply_token = token
+                supply_address = address
+                break
+        
+        if not supply_address:
+            logger.info(
+                "Could not determine supply token for symbol '%s'. Manual entry required.",
+                symbol
+            )
+            return None
+        
+        # Get account and check balance
+        account = Account.from_key(Config.WALLET_PRIVATE_KEY)
+        
+        try:
+            token_contract = w3.eth.contract(
+                address=Web3.to_checksum_address(supply_address),
+                abi=ERC20_ABI
+            )
+            decimals = token_contract.functions.decimals().call()
+            balance = token_contract.functions.balanceOf(account.address).call()
+            
+            if balance == 0:
+                logger.info("No %s balance to supply", supply_token)
+                return None
+            
+            # Calculate amount to supply based on MAX_TRADE_USD and token price
+            # Fetch current token price to calculate the correct amount
+            from nexus.protocols.dex_aggregator import PriceAggregator
+            token_price = PriceAggregator.get_price(supply_token)
+            
+            if token_price and token_price > 0:
+                # Calculate amount in token units based on USD value
+                max_amount_tokens = Config.MAX_TRADE_USD / token_price
+                max_amount_wei = int(max_amount_tokens * (10 ** decimals))
+                supply_amount = min(balance, max_amount_wei)
+            else:
+                # Fallback: use balance but cap at a reasonable amount
+                logger.warning("Could not fetch price for %s, using balance-based limit", supply_token)
+                supply_amount = min(balance, int(100 * (10 ** decimals)))  # Cap at 100 tokens
+            
+            if supply_amount < 10 ** (decimals - 2):  # Minimum amount check
+                logger.info("Supply amount too small for %s", supply_token)
+                return None
+            
+            logger.info(
+                "Preparing to supply %.6f %s to Aave on %s",
+                supply_amount / (10 ** decimals), supply_token, chain
+            )
+            
+            # Check and set allowance if needed
+            allowance = token_contract.functions.allowance(
+                account.address, 
+                AAVE_POOL_ADDRESSES[chain]
+            ).call()
+            
+            nonce = w3.eth.get_transaction_count(account.address)
+            gas_price = w3.eth.gas_price
+            
+            tx_hashes = []
+            
+            if allowance < supply_amount:
+                # Approve Aave pool to spend tokens
+                approve_tx = token_contract.functions.approve(
+                    Web3.to_checksum_address(AAVE_POOL_ADDRESSES[chain]),
+                    supply_amount
+                ).build_transaction({
+                    "from": account.address,
+                    "nonce": nonce,
+                    "gasPrice": gas_price,
+                    "gas": 100_000,
+                })
+                
+                signed_approve = account.sign_transaction(approve_tx)
+                approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+                receipt = w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                
+                if receipt.status != 1:
+                    logger.error("Approve transaction failed")
+                    return None
+                
+                tx_hashes.append(approve_hash.hex())
+                nonce += 1
+                logger.info("Approved %s for Aave: %s", supply_token, approve_hash.hex())
+            
+            # Build and send supply transaction
+            supply_tx = aave.build_supply_tx(
+                asset=supply_address,
+                amount_wei=supply_amount,
+                on_behalf_of=account.address,
+                nonce=nonce,
+                gas_price_wei=gas_price
+            )
+            
+            if not supply_tx:
+                logger.error("Failed to build Aave supply transaction")
+                return None
+            
+            # Try to use Flashbots for MEV protection if available
+            bundle_submitter = get_bundle_submitter()
+            if bundle_submitter.is_available() and chain == "ethereum":
+                signed_supply = account.sign_transaction(supply_tx)
+                result = bundle_submitter.submit_bundle([signed_supply.raw_transaction], w3)
+                if result.get("success"):
+                    logger.info(
+                        "Aave supply submitted via Flashbots: bundle_hash=%s",
+                        result.get("bundle_hash", "")[:20]
+                    )
+                    return result.get("bundle_hash", tx_hashes[-1] if tx_hashes else None)
+            
+            # Standard submission
+            signed_supply = account.sign_transaction(supply_tx)
+            supply_hash = w3.eth.send_raw_transaction(signed_supply.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(supply_hash, timeout=120)
+            
+            if receipt.status == 1:
+                logger.info(
+                    "Successfully supplied %.6f %s to Aave: %s",
+                    supply_amount / (10 ** decimals), supply_token, supply_hash.hex()
+                )
+                return supply_hash.hex()
+            else:
+                logger.error("Aave supply transaction failed")
+                return None
+                
+        except Exception as exc:
+            logger.error("Yield farming execution failed: %s", exc)
+            return None
 
     def _execute_liquidity_mining(self, opp: Opportunity, w3: Web3) -> Optional[str]:
-        """Add liquidity to a DEX pool."""
+        """
+        Add liquidity to a DEX pool to earn trading fees and rewards.
+        
+        Supports:
+        - Uniswap V2 compatible DEXes (Uniswap, SushiSwap, PancakeSwap, QuickSwap)
+        - Single-sided liquidity where supported
+        """
         logger.info("Liquidity mining execution: %s", opp.description)
-        logger.info("LP auto-entry: currently requires manual position entry.")
-        return None
+        details = opp.details
+        chain = opp.chain
+        protocol = details.get("protocol", "").lower()
+        symbol = details.get("symbol", "")
+        
+        from nexus.protocols.uniswap import DEX_ADDRESSES, ERC20_ABI, UNISWAP_V2_ROUTER_ABI
+        from nexus.execution.bundle_submitter import get_bundle_submitter
+        
+        # Determine which DEX router to use based on protocol and chain
+        router_address = self._get_lp_router(protocol, chain)
+        if not router_address:
+            logger.info(
+                "Protocol '%s' on %s requires manual LP entry. Pool: %s (APY: %.2f%%)",
+                protocol, chain, symbol, details.get("apy_total", 0)
+            )
+            if Config.DRY_RUN:
+                return "0x" + "lp00" + ("0" * MOCK_TX_HASH_PADDING)
+            return None
+        
+        # Parse token pair from symbol (e.g., "WETH-USDC" or "ETH/USDC")
+        tokens = self._parse_lp_tokens(symbol, chain)
+        if not tokens:
+            logger.info("Could not parse token pair from symbol '%s'", symbol)
+            return None
+        
+        token_a_address, token_b_address = tokens
+        
+        account = Account.from_key(Config.WALLET_PRIVATE_KEY)
+        
+        try:
+            # Get token contracts and check balances
+            token_a = w3.eth.contract(
+                address=Web3.to_checksum_address(token_a_address),
+                abi=ERC20_ABI
+            )
+            token_b = w3.eth.contract(
+                address=Web3.to_checksum_address(token_b_address),
+                abi=ERC20_ABI
+            )
+            
+            decimals_a = token_a.functions.decimals().call()
+            decimals_b = token_b.functions.decimals().call()
+            balance_a = token_a.functions.balanceOf(account.address).call()
+            balance_b = token_b.functions.balanceOf(account.address).call()
+            
+            if balance_a == 0 or balance_b == 0:
+                logger.info("Insufficient token balances for LP entry")
+                return None
+            
+            # Calculate amounts based on MAX_TRADE_USD and token prices
+            # Each side of the LP should be worth MAX_TRADE_USD / 2
+            from nexus.protocols.dex_aggregator import PriceAggregator
+            
+            # Try to get token prices for proper USD-based calculation
+            # Parse token symbols from symbol string (e.g., "WETH-USDC" -> "ETH", "USDC")
+            symbol_parts = symbol.upper().replace("/", "-").replace("_", "-").split("-")
+            token_a_sym = symbol_parts[0] if len(symbol_parts) > 0 else "UNKNOWN"
+            token_b_sym = symbol_parts[1] if len(symbol_parts) > 1 else "UNKNOWN"
+            
+            price_a = PriceAggregator.get_price(token_a_sym.replace("W", ""))  # Remove W prefix for wrapped tokens
+            price_b = PriceAggregator.get_price(token_b_sym.replace("W", ""))
+            
+            half_trade_usd = Config.MAX_TRADE_USD / 2
+            
+            if price_a and price_a > 0:
+                max_amount_a = int((half_trade_usd / price_a) * (10 ** decimals_a))
+                amount_a = min(balance_a, max_amount_a)
+            else:
+                # Fallback: cap at reasonable amount
+                amount_a = min(balance_a, int(100 * (10 ** decimals_a)))
+            
+            if price_b and price_b > 0:
+                max_amount_b = int((half_trade_usd / price_b) * (10 ** decimals_b))
+                amount_b = min(balance_b, max_amount_b)
+            else:
+                # Fallback: cap at reasonable amount
+                amount_b = min(balance_b, int(100 * (10 ** decimals_b)))
+            
+            # Dynamic slippage based on market conditions
+            slippage = self.get_dynamic_slippage(chain)
+            amount_a_min = int(amount_a * (1 - slippage / 100))
+            amount_b_min = int(amount_b * (1 - slippage / 100))
+            
+            logger.info(
+                "Preparing LP entry: %.6f token_a + %.6f token_b on %s",
+                amount_a / (10 ** decimals_a),
+                amount_b / (10 ** decimals_b),
+                protocol
+            )
+            
+            nonce = w3.eth.get_transaction_count(account.address)
+            gas_price = w3.eth.gas_price
+            deadline = int(time.time()) + LP_DEADLINE_SECONDS
+            
+            # Approve both tokens for router
+            for token_contract, amount, name in [
+                (token_a, amount_a, "token_a"),
+                (token_b, amount_b, "token_b")
+            ]:
+                allowance = token_contract.functions.allowance(
+                    account.address, router_address
+                ).call()
+                
+                if allowance < amount:
+                    approve_tx = token_contract.functions.approve(
+                        Web3.to_checksum_address(router_address),
+                        amount
+                    ).build_transaction({
+                        "from": account.address,
+                        "nonce": nonce,
+                        "gasPrice": gas_price,
+                        "gas": 100_000,
+                    })
+                    
+                    signed_approve = account.sign_transaction(approve_tx)
+                    approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+                    receipt = w3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                    
+                    if receipt.status != 1:
+                        logger.error("Approve transaction failed for %s", name)
+                        return None
+                    
+                    nonce += 1
+                    logger.info("Approved %s for router: %s", name, approve_hash.hex())
+            
+            # Build addLiquidity transaction
+            router = w3.eth.contract(
+                address=Web3.to_checksum_address(router_address),
+                abi=self._get_router_abi_with_add_liquidity()
+            )
+            
+            add_liq_tx = router.functions.addLiquidity(
+                Web3.to_checksum_address(token_a_address),
+                Web3.to_checksum_address(token_b_address),
+                amount_a,
+                amount_b,
+                amount_a_min,
+                amount_b_min,
+                account.address,
+                deadline
+            ).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": 300_000,
+            })
+            
+            # Try Flashbots for MEV protection
+            bundle_submitter = get_bundle_submitter()
+            if bundle_submitter.is_available() and chain == "ethereum":
+                signed_liq = account.sign_transaction(add_liq_tx)
+                result = bundle_submitter.submit_bundle([signed_liq.raw_transaction], w3)
+                if result.get("success"):
+                    logger.info(
+                        "LP entry submitted via Flashbots: bundle_hash=%s",
+                        result.get("bundle_hash", "")[:20]
+                    )
+                    return result.get("bundle_hash")
+            
+            # Standard submission
+            signed_liq = account.sign_transaction(add_liq_tx)
+            liq_hash = w3.eth.send_raw_transaction(signed_liq.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(liq_hash, timeout=120)
+            
+            if receipt.status == 1:
+                logger.info("Successfully added liquidity: %s", liq_hash.hex())
+                return liq_hash.hex()
+            else:
+                logger.error("Add liquidity transaction failed")
+                return None
+                
+        except Exception as exc:
+            logger.error("Liquidity mining execution failed: %s", exc)
+            return None
 
     # ── Helpers ───────────────────────────────────────────────
+    
+    def _get_aave_token_map(self, chain: str) -> dict[str, str]:
+        """Return mapping of token symbols to addresses for Aave markets."""
+        from nexus.protocols.dex_aggregator import TOKEN_ADDRESSES
+        
+        # Get chain token addresses
+        chain_tokens = TOKEN_ADDRESSES.get(chain, {})
+        
+        # Add common mappings
+        token_map = {}
+        for symbol, address in chain_tokens.items():
+            # Normalize symbol (remove W prefix for wrapped tokens)
+            normalized = symbol.replace("W", "") if symbol.startswith("W") else symbol
+            token_map[normalized] = address
+            token_map[symbol] = address
+        
+        return token_map
+    
+    def _get_lp_router(self, protocol: str, chain: str) -> Optional[str]:
+        """Get the router address for a liquidity mining protocol."""
+        from nexus.protocols.uniswap import DEX_ADDRESSES
+        
+        chain_addrs = DEX_ADDRESSES.get(chain, {})
+        
+        # Map protocol names to router keys
+        protocol_router_map = {
+            "uniswap": "uniswap_v2_router",
+            "uniswap-v2": "uniswap_v2_router",
+            "uniswap v2": "uniswap_v2_router",
+            "sushiswap": "sushiswap_router",
+            "sushi": "sushiswap_router",
+            "pancakeswap": "pancakeswap_router",
+            "pancake": "pancakeswap_router",
+            "quickswap": "quickswap_router",
+            "quick": "quickswap_router",
+        }
+        
+        router_key = protocol_router_map.get(protocol.lower())
+        if router_key:
+            return chain_addrs.get(router_key)
+        
+        # Try to find any router for the chain
+        for key, addr in chain_addrs.items():
+            if "router" in key.lower():
+                return addr
+        
+        return None
+    
+    def _parse_lp_tokens(self, symbol: str, chain: str) -> Optional[tuple[str, str]]:
+        """Parse token addresses from LP symbol like 'WETH-USDC' or 'ETH/USDC'."""
+        from nexus.protocols.dex_aggregator import TOKEN_ADDRESSES
+        from nexus.protocols.uniswap import DEX_ADDRESSES
+        
+        # Normalize and split symbol
+        symbol = symbol.upper().replace("/", "-").replace("_", "-")
+        parts = symbol.split("-")
+        
+        if len(parts) < 2:
+            return None
+        
+        token_a_sym, token_b_sym = parts[0], parts[1]
+        
+        # Get token addresses from our mappings
+        chain_tokens = TOKEN_ADDRESSES.get(chain, {})
+        dex_tokens = DEX_ADDRESSES.get(chain, {})
+        
+        # Combine all known tokens
+        all_tokens = {**chain_tokens, **dex_tokens}
+        
+        # Normalize token symbols
+        def find_address(sym: str) -> Optional[str]:
+            sym = sym.upper()
+            # Direct match
+            if sym in all_tokens:
+                return all_tokens[sym]
+            # Try with W prefix (wrapped)
+            if f"W{sym}" in all_tokens:
+                return all_tokens[f"W{sym}"]
+            # Try lowercase
+            for key, addr in all_tokens.items():
+                if key.upper() == sym or key.upper() == f"W{sym}":
+                    return addr
+            return None
+        
+        addr_a = find_address(token_a_sym)
+        addr_b = find_address(token_b_sym)
+        
+        if addr_a and addr_b:
+            return (addr_a, addr_b)
+        
+        return None
+    
+    def _get_router_abi_with_add_liquidity(self) -> list:
+        """Return router ABI including addLiquidity function."""
+        from nexus.protocols.uniswap import UNISWAP_V2_ROUTER_ABI
+        
+        add_liquidity_abi = {
+            "name": "addLiquidity",
+            "type": "function",
+            "inputs": [
+                {"name": "tokenA", "type": "address"},
+                {"name": "tokenB", "type": "address"},
+                {"name": "amountADesired", "type": "uint256"},
+                {"name": "amountBDesired", "type": "uint256"},
+                {"name": "amountAMin", "type": "uint256"},
+                {"name": "amountBMin", "type": "uint256"},
+                {"name": "to", "type": "address"},
+                {"name": "deadline", "type": "uint256"},
+            ],
+            "outputs": [
+                {"name": "amountA", "type": "uint256"},
+                {"name": "amountB", "type": "uint256"},
+                {"name": "liquidity", "type": "uint256"},
+            ],
+            "stateMutability": "nonpayable",
+        }
+        
+        return UNISWAP_V2_ROUTER_ABI + [add_liquidity_abi]
 
     @staticmethod
     def _dex_name_to_key(dex_name: str, chain: str, suffix: str) -> str:

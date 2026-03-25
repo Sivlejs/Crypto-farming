@@ -14,6 +14,10 @@ from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Retry configuration for API calls
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 2  # seconds, exponential backoff: 2, 4, 8...
+
 # ── CoinGecko price feed ──────────────────────────────────────
 
 COINGECKO_IDS: dict[str, str] = {
@@ -63,7 +67,9 @@ class PriceAggregator:
     """Fetches and caches token prices from CoinGecko and on-chain DEX pools."""
 
     _cache: dict[str, tuple[float, float]] = {}  # symbol -> (price_usd, timestamp)
+    _yield_cache: tuple[List[dict], float] = ([], 0.0)  # (pools, timestamp) for yield rates
     CACHE_TTL = 30  # seconds
+    YIELD_CACHE_TTL = 300  # 5 minutes for yield data (DeFi Llama updates less frequently)
 
     @classmethod
     def get_prices_coingecko(cls, symbols: List[str]) -> Dict[str, float]:
@@ -122,39 +128,72 @@ class PriceAggregator:
     @classmethod
     def get_yield_rates(cls) -> List[dict]:
         """
-        Fetch DeFi yield rates from DeFi Llama.
+        Fetch DeFi yield rates from DeFi Llama with retry logic and fallback cache.
         Returns list of {protocol, chain, pool, apy, tvl_usd}.
         """
-        try:
-            resp = requests.get(
-                "https://yields.llama.fi/pools",
-                timeout=15,
-            )
-            resp.raise_for_status()
-            pools = resp.json().get("data", [])
+        now = time.time()
+        
+        # Check if we have a fresh cache
+        cached_pools, cache_time = cls._yield_cache
+        if cached_pools and (now - cache_time) < cls.YIELD_CACHE_TTL:
+            logger.debug("Using cached yield rates (%d pools)", len(cached_pools))
+            return cached_pools
 
-            # Filter for well-known, high-TVL pools
-            result = []
-            for p in pools:
-                if (
-                    p.get("tvlUsd", 0) > 100_000
-                    and p.get("apy") is not None
-                    and p.get("apy", 0) > 0
-                ):
-                    result.append(
-                        {
-                            "pool_id": p.get("pool", ""),
-                            "protocol": p.get("project", ""),
-                            "chain": p.get("chain", "").lower(),
-                            "symbol": p.get("symbol", ""),
-                            "apy": round(float(p.get("apy", 0)), 2),
-                            "tvl_usd": float(p.get("tvlUsd", 0)),
-                            "apy_reward": round(float(p.get("apyReward") or 0), 2),
-                            "apy_base": round(float(p.get("apyBase") or 0), 2),
-                        }
-                    )
-            result.sort(key=lambda x: x["apy"], reverse=True)
-            return result[:50]  # Top 50
-        except Exception as exc:
-            logger.warning("DeFi Llama yield fetch failed: %s", exc)
-            return []
+        # Try to fetch with exponential backoff retry
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = requests.get(
+                    "https://yields.llama.fi/pools",
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                pools = resp.json().get("data", [])
+
+                # Filter for well-known, high-TVL pools with positive APY
+                result = []
+                for p in pools:
+                    tvl = p.get("tvlUsd", 0)
+                    apy = p.get("apy")
+                    if tvl > 50_000 and apy is not None and apy > 0:
+                        result.append(
+                            {
+                                "pool_id": p.get("pool", ""),
+                                "protocol": p.get("project", ""),
+                                "chain": p.get("chain", "").lower(),
+                                "symbol": p.get("symbol", ""),
+                                "apy": round(float(apy), 2),
+                                "tvl_usd": float(tvl),
+                                "apy_reward": round(float(p.get("apyReward") or 0), 2),
+                                "apy_base": round(float(p.get("apyBase") or 0), 2),
+                            }
+                        )
+                result.sort(key=lambda x: x["apy"], reverse=True)
+                result = result[:100]  # Top 100 pools for more opportunities
+                
+                # Update cache on success
+                cls._yield_cache = (result, now)
+                logger.info("Fetched %d yield pools from DeFi Llama", len(result))
+                return result
+                
+            except Exception as exc:
+                last_error = exc
+                retry_delay_seconds = RETRY_BACKOFF_BASE ** attempt
+                logger.warning(
+                    "DeFi Llama yield fetch failed (attempt %d/%d): %s. Retrying in %ds...",
+                    attempt + 1, MAX_RETRIES, exc, retry_delay_seconds
+                )
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(retry_delay_seconds)
+        
+        # All retries failed - use stale cache if available
+        if cached_pools:
+            logger.warning(
+                "DeFi Llama API unavailable after %d retries. Using stale cache (%d pools, %.0fs old)",
+                MAX_RETRIES, len(cached_pools), now - cache_time
+            )
+            return cached_pools
+        
+        # No cache available
+        logger.error("DeFi Llama yield fetch failed after %d retries with no cache: %s", MAX_RETRIES, last_error)
+        return []
