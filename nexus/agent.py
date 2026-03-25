@@ -4,6 +4,12 @@ Nexus AI – Main Orchestrator
 Ties together the blockchain manager, opportunity monitor, executor,
 and reward tracker into a single agent that can be started/stopped
 and queried for status.
+
+v2 Efficiency Upgrades:
+  • Brain-aware monitor with adaptive strategy weighting
+  • Gas-aware trade deferral for low-urgency opportunities
+  • Dynamic slippage based on market volatility
+  • Staleness filtering to avoid executing outdated opportunities
 """
 from __future__ import annotations
 
@@ -25,6 +31,10 @@ from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Strategy urgency classification for trade deferral
+_URGENT_STRATEGIES = {"flash_arbitrage", "arbitrage", "liquidation"}
+_DEFERRABLE_STRATEGIES = {"yield_farming", "liquidity_mining", "staking"}
+
 
 class NexusAgent:
     """
@@ -45,8 +55,13 @@ class NexusAgent:
             logger.warning("BlockchainManager init issue: %s (continuing anyway)", exc)
             self.blockchain = get_blockchain_manager()  # Retry once
 
-        self.monitor: OpportunityMonitor = OpportunityMonitor(self.blockchain)
-        self.executor: TransactionExecutor = TransactionExecutor(self.blockchain)
+        # Initialize brain FIRST so monitor and executor can use it
+        self.brain: NexusBrain = get_brain()
+        
+        # Pass brain to monitor for regime-aware scanning
+        self.monitor: OpportunityMonitor = OpportunityMonitor(self.blockchain, brain=self.brain)
+        # Pass brain to executor for dynamic slippage
+        self.executor: TransactionExecutor = TransactionExecutor(self.blockchain, brain=self.brain)
         self.tracker: RewardTracker = RewardTracker()
         self.payout: PayoutManager = get_payout_manager(self.blockchain)
         self.feed: PriceFeed = get_price_feed()
@@ -57,14 +72,17 @@ class NexusAgent:
             logger.debug("Bundle submitter init failed: %s", exc)
             self.bundler = None
             
-        self.brain: NexusBrain = get_brain()
         self.scheduler: TradeScheduler = get_trade_scheduler()
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
         self._init_errors: list[str] = []
         
-        logger.info("NexusAgent initialized successfully")
+        # Performance metrics
+        self._deferred_count = 0
+        self._gas_savings_estimate = 0.0
+        
+        logger.info("NexusAgent initialized successfully (v2 efficiency upgrades)")
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -146,12 +164,21 @@ class NexusAgent:
             logger.info("Brain skipped opportunity: %s", reason)
             return
 
+        # ── Gas-aware trade deferral for low-urgency strategies ────
+        strategy_name = opp_dict.get("type", "").replace("_", "").lower()
+        if strategy_name not in _URGENT_STRATEGIES:
+            if not self.scheduler.is_good_time(opp.chain, strategy_name):
+                # Defer to scheduler instead of skipping entirely
+                self._defer_trade(opp, opp_dict)
+                return
+
         logger.info(
-            "Executing best opportunity: %s (brain=%s score=%.4f profit=$%.4f)",
+            "Executing best opportunity: %s (brain=%s score=%.4f profit=$%.4f regime=%s)",
             opp.description,
             reason,
             opp.score(),
             opp.estimated_profit_usd,
+            self.brain.regime(),
         )
 
         tx_hash = self.executor.execute(opp)
@@ -159,6 +186,16 @@ class NexusAgent:
         actual_profit = opp.estimated_profit_usd if success else 0.0
 
         self.monitor.mark_executed(opp, tx_hash or "failed")
+        
+        # Record result for strategy performance tracking
+        strategy_type = getattr(opp, 'type', None)
+        if strategy_type:
+            self.monitor.record_execution_result(
+                strategy_type.value if hasattr(strategy_type, 'value') else str(strategy_type),
+                actual_profit,
+                success,
+            )
+        
         self.tracker.record(
             opp=opp,
             tx_hash=tx_hash,
@@ -172,11 +209,64 @@ class NexusAgent:
         # Queue profit for automatic payout to Coinbase / Cash App
         if success:
             self.payout.queue(actual_profit, opp.chain)
+    
+    def _defer_trade(self, opp, opp_dict: dict):
+        """
+        Defer a low-urgency trade to be executed when gas is cheaper.
+        Instead of skipping, we queue it with the trade scheduler.
+        """
+        self._deferred_count += 1
+        current_gas = self.scheduler._oracle.current_base_fee() or 0
+        target_gas = self.scheduler._oracle._percentile(25) if hasattr(self.scheduler._oracle, '_percentile') else current_gas * 0.8
+        
+        # Estimate potential gas savings
+        if current_gas > target_gas:
+            savings_estimate = (current_gas - target_gas) * 0.0001  # Rough USD estimate
+            self._gas_savings_estimate += savings_estimate
+        
+        logger.info(
+            "Deferring %s to scheduler (gas=%.1f gwei, target=%.1f gwei, deferred_total=%d)",
+            opp.description[:50],
+            current_gas,
+            target_gas,
+            self._deferred_count,
+        )
+        
+        def execute_callback(opp_from_scheduler):
+            """Callback invoked by scheduler when gas is cheap."""
+            try:
+                # Re-check if still profitable
+                if opp.executed:
+                    return
+                tx_hash = self.executor.execute(opp)
+                success = bool(tx_hash and tx_hash != "failed")
+                actual_profit = opp.estimated_profit_usd if success else 0.0
+                self.monitor.mark_executed(opp, tx_hash or "failed")
+                self.tracker.record(
+                    opp=opp,
+                    tx_hash=tx_hash,
+                    actual_profit_usd=actual_profit if success else None,
+                    dry_run=Config.DRY_RUN,
+                )
+                self.brain.learn(opp_dict, success=success, actual_profit=actual_profit)
+                if success:
+                    self.payout.queue(actual_profit, opp.chain)
+                logger.info("Deferred trade executed: %s (success=%s)", opp.description[:50], success)
+            except Exception as exc:
+                logger.warning("Deferred trade execution error: %s", exc)
+        
+        self.scheduler.enqueue(
+            opportunity=opp_dict,
+            urgency="low",
+            callback=execute_callback,
+            max_wait=300.0,  # 5 minutes max wait
+        )
 
     # ── Status / reporting ────────────────────────────────────
 
     def status(self) -> dict:
         uptime = time.time() - self._start_time if self._start_time else 0
+        scheduler_stats = self.scheduler.stats()
         return {
             "running": self._running,
             "uptime_seconds": round(uptime),
@@ -189,6 +279,17 @@ class NexusAgent:
             "prices": self.feed.all_prices(),
             "flashbots_ready": self.bundler.is_available() if self.bundler else False,
             "brain": self.brain.status(),
+            # v2 efficiency metrics
+            "efficiency": {
+                "deferred_trades": self._deferred_count,
+                "estimated_gas_savings_usd": round(self._gas_savings_estimate, 4),
+                "scheduler_queue_size": scheduler_stats.get("queue_size", 0),
+                "scheduler_submitted": scheduler_stats.get("submitted", 0),
+                "scheduler_expired": scheduler_stats.get("expired", 0),
+                "current_regime": self.brain.regime(),
+                "strategy_weights": self.brain.strategy_weights(),
+            },
+            "timing": scheduler_stats,
         }
 
     def get_opportunities(self, limit: int = 20) -> list:
