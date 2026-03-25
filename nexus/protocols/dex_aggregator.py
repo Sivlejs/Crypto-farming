@@ -178,13 +178,13 @@ class PriceAggregator:
                 
             except Exception as exc:
                 last_error = exc
-                wait_time = RETRY_BACKOFF_BASE ** attempt
+                retry_delay_seconds = RETRY_BACKOFF_BASE ** attempt
                 logger.warning(
                     "DeFi Llama yield fetch failed (attempt %d/%d): %s. Retrying in %ds...",
-                    attempt + 1, MAX_RETRIES, exc, wait_time
+                    attempt + 1, MAX_RETRIES, exc, retry_delay_seconds
                 )
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(wait_time)
+                    time.sleep(retry_delay_seconds)
         
         # All retries failed - use stale cache if available
         if cached_pools:

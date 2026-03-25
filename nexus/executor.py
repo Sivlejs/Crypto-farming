@@ -31,6 +31,10 @@ logger = get_logger(__name__)
 # Minimum ETH/BNB/MATIC to keep in wallet for gas
 RESERVE_NATIVE = 0.01
 
+# Transaction execution constants
+LP_DEADLINE_SECONDS = 600  # 10 minute deadline for LP transactions
+MOCK_TX_HASH_PADDING = 60  # Padding length for simulated transaction hashes (results in 64 chars total)
+
 # Dynamic slippage thresholds based on volatility
 SLIPPAGE_VOLATILITY_THRESHOLDS = {
     "low": {"max_volatility": 1.0, "slippage": 0.3},      # Calm market: tight slippage
@@ -441,7 +445,7 @@ class TransactionExecutor:
             )
             # Return a simulated success for tracking purposes in dry run
             if Config.DRY_RUN:
-                return "0x" + "farm" + ("0" * 60)
+                return "0x" + "farm" + ("0" * MOCK_TX_HASH_PADDING)
             return None
         
         # Check if Aave is supported on this chain
@@ -491,12 +495,22 @@ class TransactionExecutor:
                 logger.info("No %s balance to supply", supply_token)
                 return None
             
-            # Calculate amount to supply (use configured MAX_TRADE_USD worth)
-            # For simplicity, supply entire balance up to max trade limit
-            # In production, this would fetch price and calculate exact amount
-            supply_amount = min(balance, int(Config.MAX_TRADE_USD * (10 ** decimals)))
+            # Calculate amount to supply based on MAX_TRADE_USD and token price
+            # Fetch current token price to calculate the correct amount
+            from nexus.protocols.dex_aggregator import PriceAggregator
+            token_price = PriceAggregator.get_price(supply_token)
             
-            if supply_amount < 10 ** (decimals - 2):  # Minimum $0.01 worth
+            if token_price and token_price > 0:
+                # Calculate amount in token units based on USD value
+                max_amount_tokens = Config.MAX_TRADE_USD / token_price
+                max_amount_wei = int(max_amount_tokens * (10 ** decimals))
+                supply_amount = min(balance, max_amount_wei)
+            else:
+                # Fallback: use balance but cap at a reasonable amount
+                logger.warning("Could not fetch price for %s, using balance-based limit", supply_token)
+                supply_amount = min(balance, int(100 * (10 ** decimals)))  # Cap at 100 tokens
+            
+            if supply_amount < 10 ** (decimals - 2):  # Minimum amount check
                 logger.info("Supply amount too small for %s", supply_token)
                 return None
             
@@ -609,7 +623,7 @@ class TransactionExecutor:
                 protocol, chain, symbol, details.get("apy_total", 0)
             )
             if Config.DRY_RUN:
-                return "0x" + "lp00" + ("0" * 60)
+                return "0x" + "lp00" + ("0" * MOCK_TX_HASH_PADDING)
             return None
         
         # Parse token pair from symbol (e.g., "WETH-USDC" or "ETH/USDC")
@@ -642,10 +656,34 @@ class TransactionExecutor:
                 logger.info("Insufficient token balances for LP entry")
                 return None
             
-            # Calculate amounts (simplified: use smaller balance as reference)
-            # In production, this would query the pool ratio and calculate optimal amounts
-            amount_a = min(balance_a, int(Config.MAX_TRADE_USD / 2 * (10 ** decimals_a)))
-            amount_b = min(balance_b, int(Config.MAX_TRADE_USD / 2 * (10 ** decimals_b)))
+            # Calculate amounts based on MAX_TRADE_USD and token prices
+            # Each side of the LP should be worth MAX_TRADE_USD / 2
+            from nexus.protocols.dex_aggregator import PriceAggregator
+            
+            # Try to get token prices for proper USD-based calculation
+            # Parse token symbols from symbol string (e.g., "WETH-USDC" -> "ETH", "USDC")
+            symbol_parts = symbol.upper().replace("/", "-").replace("_", "-").split("-")
+            token_a_sym = symbol_parts[0] if len(symbol_parts) > 0 else "UNKNOWN"
+            token_b_sym = symbol_parts[1] if len(symbol_parts) > 1 else "UNKNOWN"
+            
+            price_a = PriceAggregator.get_price(token_a_sym.replace("W", ""))  # Remove W prefix for wrapped tokens
+            price_b = PriceAggregator.get_price(token_b_sym.replace("W", ""))
+            
+            half_trade_usd = Config.MAX_TRADE_USD / 2
+            
+            if price_a and price_a > 0:
+                max_amount_a = int((half_trade_usd / price_a) * (10 ** decimals_a))
+                amount_a = min(balance_a, max_amount_a)
+            else:
+                # Fallback: cap at reasonable amount
+                amount_a = min(balance_a, int(100 * (10 ** decimals_a)))
+            
+            if price_b and price_b > 0:
+                max_amount_b = int((half_trade_usd / price_b) * (10 ** decimals_b))
+                amount_b = min(balance_b, max_amount_b)
+            else:
+                # Fallback: cap at reasonable amount
+                amount_b = min(balance_b, int(100 * (10 ** decimals_b)))
             
             # Dynamic slippage based on market conditions
             slippage = self.get_dynamic_slippage(chain)
@@ -661,7 +699,7 @@ class TransactionExecutor:
             
             nonce = w3.eth.get_transaction_count(account.address)
             gas_price = w3.eth.gas_price
-            deadline = int(time.time()) + 600  # 10 minute deadline
+            deadline = int(time.time()) + LP_DEADLINE_SECONDS
             
             # Approve both tokens for router
             for token_contract, amount, name in [
