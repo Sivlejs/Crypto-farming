@@ -42,10 +42,24 @@ class ParsedCommand:
 
 
 # Intent patterns: (intent_name, [regex patterns that trigger it])
+# NOTE: Order matters! More specific patterns should come before general ones.
 _PATTERNS: list[tuple[str, list[str]]] = [
+    # Settings commands (most specific - check first)
+    ("set_min_profit", [r"\bset.*(?:min|minimum).*profit\b", r"\bmin.*profit.*(?:to|\d)", r"\bprofit.*threshold.*(?:to|\d)"]),
+    ("set_gas_limit", [r"\bset.*gas\b", r"\bgas.*(?:limit|max|price).*(?:to|\d)", r"\bmax.*gas.*(?:to|\d)"]),
+    ("set_slippage", [r"\bset.*slippage\b", r"\bslippage.*(?:to|\d)", r"\bslip.*tolerance"]),
+    ("set_threshold", [r"\bset.*threshold\b", r"\bpayout.*threshold.*(?:to|\d)", r"\bsweep.*threshold"]),
+    ("set_coinbase", [r"\bcoinbase.*(?:key|api|cred|set)", r"\bsetup.*coinbase\b", r"\bconnect.*coinbase\b", r"\bconfigure.*coinbase\b"]),
+    ("set_payout_addr", [r"\bpayout.*address\b", r"\bwallet.*address\b", r"\bdestination.*address\b"]),
+    ("set_dry_run",  [r"\bsimulat", r"\bdry.?run\b", r"\btest mode\b", r"\blive mode\b", r"\breal trade"]),
+    ("settings",     [r"\bsettings?\b", r"\bshow.*config", r"\bshow.*option", r"\bcurrent.*settings?"]),
+    
+    # Bot control commands
     ("start",        [r"\bstart\b", r"\brun\b", r"\blaunch\b", r"\bbegin\b", r"\bturn on\b"]),
     ("stop",         [r"\bstop\b", r"\bpause\b", r"\bhalt\b", r"\bturn off\b", r"\bshutdown\b"]),
-    ("profit",       [r"\bprofit\b", r"\bearning\b", r"\bearned\b", r"\bmoney\b", r"\bhow much\b", r"\bbalance\b"]),
+    
+    # Info queries (general patterns - check last)
+    ("profit",       [r"\b(?:my|show|what.*s).*profit\b", r"\bearning\b", r"\bearned\b", r"\bmoney\b", r"\bhow much\b"]),
     ("trades",       [r"\btrades?\b", r"\btransaction\b", r"\bhistory\b", r"\bexecut"]),
     ("opportunities",[ r"\bopportunit", r"\bfind\b", r"\bscanning\b", r"\bwhat.*see\b"]),
     ("payout",       [r"\bpayout\b", r"\bsweep\b", r"\bwithdraw\b", r"\bsend.*coinbase\b", r"\bsend.*cash app\b", r"\btransfer\b"]),
@@ -53,14 +67,6 @@ _PATTERNS: list[tuple[str, list[str]]] = [
     ("regime",       [r"\bregime\b", r"\bmarket.*condition\b", r"\bvolatil", r"\btrend"]),
     ("brain",        [r"\bbrain\b", r"\blearn", r"\bmodel\b", r"\baccurac", r"\bml\b", r"\bai.*status\b"]),
     ("status",       [r"\bstatus\b", r"\bhow.*going\b", r"\bwhat.*doing\b", r"\bupdate\b", r"\bcheck in\b"]),
-    ("settings",     [r"\bsettings?\b", r"\bconfig", r"\bshow.*option", r"\bcurrent.*settings?"]),
-    ("set_dry_run",  [r"\bsimulat", r"\bdry.?run\b", r"\btest mode\b", r"\blive mode\b", r"\breal trade"]),
-    ("set_min_profit", [r"\bmin.*profit\b", r"\bminimum.*profit\b", r"\bprofit.*threshold\b", r"\bset.*profit"]),
-    ("set_gas_limit", [r"\bgas.*(?:limit|max|price)\b", r"\bmax.*gas\b", r"\bset.*gas"]),
-    ("set_slippage", [r"\bslippage\b", r"\bslip.*tolerance\b"]),
-    ("set_threshold", [r"\bpayout.*threshold\b", r"\bsweep.*threshold\b", r"\bthreshold"]),
-    ("set_coinbase", [r"\bcoinbase.*(?:key|api|cred|set)", r"\bsetup.*coinbase\b", r"\bconnect.*coinbase\b", r"\bconfigure.*coinbase\b"]),
-    ("set_payout_addr", [r"\bpayout.*address\b", r"\bwallet.*address\b", r"\bdestination.*address\b"]),
     ("help",         [r"\bhelp\b", r"\bwhat can\b", r"\bcommands?\b", r"\bwhat.*do\b"]),
 ]
 
