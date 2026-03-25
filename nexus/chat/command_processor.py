@@ -18,6 +18,13 @@ Supported intents
   regime          → show market regime
   brain           → show AI brain / learning status
   set_dry_run     → toggle simulation mode
+  set_min_profit  → set minimum profit threshold
+  set_gas_limit   → set maximum gas price
+  set_slippage    → set slippage tolerance
+  set_threshold   → set payout threshold
+  set_coinbase    → configure Coinbase credentials
+  set_payout_addr → set payout address
+  settings        → show current settings
   help            → list commands
   unknown         → fallback
 """
@@ -46,7 +53,14 @@ _PATTERNS: list[tuple[str, list[str]]] = [
     ("regime",       [r"\bregime\b", r"\bmarket.*condition\b", r"\bvolatil", r"\btrend"]),
     ("brain",        [r"\bbrain\b", r"\blearn", r"\bmodel\b", r"\baccurac", r"\bml\b", r"\bai.*status\b"]),
     ("status",       [r"\bstatus\b", r"\bhow.*going\b", r"\bwhat.*doing\b", r"\bupdate\b", r"\bcheck in\b"]),
+    ("settings",     [r"\bsettings?\b", r"\bconfig", r"\bshow.*option", r"\bcurrent.*settings?"]),
     ("set_dry_run",  [r"\bsimulat", r"\bdry.?run\b", r"\btest mode\b", r"\blive mode\b", r"\breal trade"]),
+    ("set_min_profit", [r"\bmin.*profit\b", r"\bminimum.*profit\b", r"\bprofit.*threshold\b", r"\bset.*profit"]),
+    ("set_gas_limit", [r"\bgas.*(?:limit|max|price)\b", r"\bmax.*gas\b", r"\bset.*gas"]),
+    ("set_slippage", [r"\bslippage\b", r"\bslip.*tolerance\b"]),
+    ("set_threshold", [r"\bpayout.*threshold\b", r"\bsweep.*threshold\b", r"\bthreshold"]),
+    ("set_coinbase", [r"\bcoinbase.*(?:key|api|cred|set)", r"\bsetup.*coinbase\b", r"\bconnect.*coinbase\b", r"\bconfigure.*coinbase\b"]),
+    ("set_payout_addr", [r"\bpayout.*address\b", r"\bwallet.*address\b", r"\bdestination.*address\b"]),
     ("help",         [r"\bhelp\b", r"\bwhat can\b", r"\bcommands?\b", r"\bwhat.*do\b"]),
 ]
 
@@ -55,6 +69,9 @@ _COMPILED = [
     for intent, patterns in _PATTERNS
 ]
 
+# Regex to extract numbers from text
+_NUMBER_PATTERN = re.compile(r'\$?(\d+(?:\.\d+)?)')
+
 
 def parse_command(text: str) -> ParsedCommand:
     """Parse a natural language string into a structured command."""
@@ -62,8 +79,35 @@ def parse_command(text: str) -> ParsedCommand:
     for intent, patterns in _COMPILED:
         for pat in patterns:
             if pat.search(text):
-                params = {}
-                if intent == "set_dry_run":
-                    params["dry_run"] = not bool(re.search(r"live|real", text, re.I))
+                params = _extract_params(intent, text)
                 return ParsedCommand(intent=intent, params=params, raw=text)
     return ParsedCommand(intent="unknown", raw=text)
+
+
+def _extract_params(intent: str, text: str) -> dict:
+    """Extract parameters from the command text based on intent."""
+    params = {}
+    text_lower = text.lower()
+
+    if intent == "set_dry_run":
+        # Check if user wants live mode or dry run
+        params["dry_run"] = not bool(re.search(r"live|real|production", text_lower))
+
+    elif intent in ("set_min_profit", "set_gas_limit", "set_slippage", "set_threshold"):
+        # Extract numeric value
+        match = _NUMBER_PATTERN.search(text)
+        if match:
+            params["value"] = float(match.group(1))
+
+    elif intent == "set_payout_addr":
+        # Extract Ethereum address
+        addr_match = re.search(r'(0x[a-fA-F0-9]{40})', text)
+        if addr_match:
+            params["address"] = addr_match.group(1)
+
+    elif intent == "set_coinbase":
+        # This will be handled interactively - just flag the intent
+        params["needs_input"] = True
+
+    return params
+

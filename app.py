@@ -233,6 +233,8 @@ def api_chat():
 
         # Execute any requested bot action
         action = result.get("action")
+        cmd_params = result.get("params", {})
+        
         if action == "start":
             try:
                 get_agent().start()
@@ -254,6 +256,29 @@ def api_chat():
                 Config.DRY_RUN = dry
             except Exception:
                 pass
+        elif action in ("set_min_profit", "set_gas_limit", "set_slippage", "set_threshold", "set_payout_addr"):
+            # Handle settings changes from chat
+            try:
+                from nexus.utils.settings import get_settings
+                from nexus.chat.command_processor import parse_command
+                
+                settings = get_settings()
+                cmd = parse_command(user_message)
+                value = cmd.params.get("value") or cmd.params.get("address")
+                
+                if value:
+                    setting_map = {
+                        "set_min_profit": "min_profit_usd",
+                        "set_gas_limit": "max_gas_gwei",
+                        "set_slippage": "slippage_percent",
+                        "set_threshold": "payout_threshold_usd",
+                        "set_payout_addr": "payout_address",
+                    }
+                    setting_key = setting_map.get(action)
+                    if setting_key:
+                        settings.set(setting_key, value)
+            except Exception as exc:
+                logger.debug("Settings update from chat failed: %s", exc)
 
         return jsonify(result)
     except Exception as exc:
@@ -321,6 +346,167 @@ def api_control():
             Config.DRY_RUN = val
             return jsonify({"ok": True, "dry_run": val})
         return jsonify({"error": f"Unknown action: {action}"}), 400
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+# ── Settings API ──────────────────────────────────────────────
+
+@app.route("/api/settings")
+def api_settings():
+    """Get all runtime-configurable settings."""
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        return jsonify(settings.get_all(include_sensitive=False))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/settings/<category>")
+def api_settings_category(category: str):
+    """Get settings for a specific category."""
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        return jsonify(settings.get_by_category(category, include_sensitive=False))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/settings/update", methods=["POST"])
+def api_settings_update():
+    """
+    Update one or more settings.
+
+    Request JSON: { "key": "value", ... }
+    or single: { "key": "setting_name", "value": "new_value" }
+    """
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        data = request.get_json(force=True) or {}
+
+        # Handle single key-value update
+        if "key" in data and "value" in data:
+            result = settings.set(data["key"], data["value"])
+            return jsonify(result)
+
+        # Handle batch update
+        results = []
+        for key, value in data.items():
+            result = settings.set(key, value)
+            results.append(result)
+
+        success_count = sum(1 for r in results if r.get("success"))
+        return jsonify({
+            "success": success_count == len(results),
+            "updated": success_count,
+            "total": len(results),
+            "results": results,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/settings/reset", methods=["POST"])
+def api_settings_reset():
+    """
+    Reset settings to defaults.
+
+    Request JSON: { "key": "setting_name" } to reset one setting
+    or { "all": true } to reset all settings
+    """
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        data = request.get_json(force=True) or {}
+
+        if data.get("all"):
+            result = settings.reset_all()
+        elif "key" in data:
+            result = settings.reset(data["key"])
+        else:
+            return jsonify({"error": "Provide 'key' or 'all' in request body"}), 400
+
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/settings/coinbase", methods=["POST"])
+def api_settings_coinbase():
+    """
+    Configure Coinbase API credentials.
+
+    Request JSON: {
+        "api_key": "your-api-key",
+        "api_secret": "your-api-secret",
+        "account_id": "optional-account-id"
+    }
+    """
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        data = request.get_json(force=True) or {}
+
+        results = []
+        if "api_key" in data:
+            results.append(settings.set("coinbase_api_key", data["api_key"]))
+        if "api_secret" in data:
+            results.append(settings.set("coinbase_api_secret", data["api_secret"]))
+        if "account_id" in data:
+            results.append(settings.set("coinbase_account_id", data["account_id"]))
+
+        success = all(r.get("success") for r in results)
+        return jsonify({
+            "success": success,
+            "message": "Coinbase credentials updated" if success else "Some updates failed",
+            "configured": bool(
+                settings.get("coinbase_api_key") and settings.get("coinbase_api_secret")
+            ),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/settings/payout", methods=["POST"])
+def api_settings_payout():
+    """
+    Configure payout settings.
+
+    Request JSON: {
+        "address": "0x...",
+        "chain": "ethereum",
+        "token": "USDC",
+        "threshold_usd": 10.0,
+        "lightning_address": "$cashtag"
+    }
+    """
+    try:
+        from nexus.utils.settings import get_settings
+        settings = get_settings()
+        data = request.get_json(force=True) or {}
+
+        mapping = {
+            "address": "payout_address",
+            "chain": "payout_chain",
+            "token": "payout_token",
+            "threshold_usd": "payout_threshold_usd",
+            "lightning_address": "lightning_address",
+        }
+
+        results = []
+        for request_key, setting_key in mapping.items():
+            if request_key in data:
+                results.append(settings.set(setting_key, data[request_key]))
+
+        success = all(r.get("success") for r in results)
+        return jsonify({
+            "success": success,
+            "message": "Payout settings updated" if success else "Some updates failed",
+            "results": results,
+        })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

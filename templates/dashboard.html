@@ -422,32 +422,191 @@
 
   <!-- ══════════════ TAB: SETTINGS ═════════════════════════ -->
   <div id="tab-settings" class="tab-content">
-    <div class="page-header"><h1>Settings & Configuration</h1></div>
-
-    <div class="settings-hint">
-      <span>⚠️</span>
-      Settings are configured via environment variables on Render.
-      Changes here show current values only. Edit in your Render dashboard or <code>.env</code> file.
+    <div class="page-header">
+      <h1>Settings & Configuration</h1>
+      <div class="header-actions">
+        <button class="btn btn-dim" onclick="loadSettings()">↺ Refresh</button>
+        <button class="btn btn-accent" onclick="saveAllSettings()">💾 Save All</button>
+      </div>
     </div>
 
+    <div class="settings-hint">
+      <span>💡</span>
+      Configure your bot settings below. Changes are applied immediately and synced across web and worker services.
+      For security, API secrets are stored but displayed masked.
+    </div>
+
+    <!-- Bot Settings -->
     <div class="two-col">
       <div class="card">
         <div class="card-head">🤖 Bot Settings</div>
-        <div id="settings-bot" class="settings-list"></div>
+        <div class="settings-form">
+          <div class="setting-row">
+            <label>Trading Mode</label>
+            <div class="toggle-group">
+              <button id="mode-sim" class="toggle-btn active" onclick="setDryRun(true)">🧪 Simulation</button>
+              <button id="mode-live" class="toggle-btn" onclick="setDryRun(false)">🔴 Live Trading</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <label for="set-min-profit">Minimum Profit (USD)</label>
+            <input type="number" id="set-min-profit" step="0.1" min="0.01" placeholder="2.00" />
+          </div>
+          <div class="setting-row">
+            <label for="set-max-gas">Maximum Gas (Gwei)</label>
+            <input type="number" id="set-max-gas" step="1" min="5" placeholder="80" />
+          </div>
+          <div class="setting-row">
+            <label for="set-slippage">Slippage Tolerance (%)</label>
+            <input type="number" id="set-slippage" step="0.1" min="0.1" max="5" placeholder="0.5" />
+          </div>
+          <div class="setting-row">
+            <label for="set-max-trade">Max Trade Size (USD)</label>
+            <input type="number" id="set-max-trade" step="100" min="10" placeholder="10000" />
+          </div>
+        </div>
       </div>
+
+      <!-- Coinbase Configuration -->
       <div class="card">
-        <div class="card-head">💸 Payout Settings</div>
-        <div id="settings-payout" class="settings-list"></div>
+        <div class="card-head">🏦 Coinbase API Credentials</div>
+        <div class="settings-hint" style="margin:0.5rem 0">
+          <span>🔐</span>
+          Get your API keys at <a href="https://www.coinbase.com/settings/api" target="_blank">coinbase.com/settings/api</a>.
+          Enable "wallet:transactions:send" permission.
+        </div>
+        <div class="settings-form">
+          <div class="setting-row">
+            <label for="set-cb-key">API Key</label>
+            <input type="text" id="set-cb-key" placeholder="Enter Coinbase API Key" autocomplete="off" />
+          </div>
+          <div class="setting-row">
+            <label for="set-cb-secret">API Secret</label>
+            <input type="password" id="set-cb-secret" placeholder="Enter Coinbase API Secret" autocomplete="off" />
+          </div>
+          <div class="setting-row">
+            <label for="set-cb-account">Account ID (optional)</label>
+            <input type="text" id="set-cb-account" placeholder="Auto-detected if blank" />
+          </div>
+          <div class="setting-row">
+            <button class="btn btn-green" onclick="saveCoinbaseCredentials()">💾 Save Coinbase Settings</button>
+            <span id="cb-status" class="status-badge"></span>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- Payout Settings -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head">💸 Payout Settings</div>
+        <div class="settings-form">
+          <div class="setting-row">
+            <label for="set-payout-addr">Payout Address</label>
+            <input type="text" id="set-payout-addr" placeholder="0x... (Coinbase or any EVM address)" />
+          </div>
+          <div class="setting-row">
+            <label for="set-payout-chain">Payout Chain</label>
+            <select id="set-payout-chain">
+              <option value="ethereum">Ethereum</option>
+              <option value="bsc">BSC</option>
+              <option value="polygon">Polygon</option>
+              <option value="arbitrum">Arbitrum</option>
+              <option value="optimism">Optimism</option>
+              <option value="base">Base</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="set-payout-token">Payout Token</label>
+            <select id="set-payout-token">
+              <option value="USDC">USDC</option>
+              <option value="USDT">USDT</option>
+              <option value="ETH">ETH</option>
+              <option value="BNB">BNB</option>
+              <option value="MATIC">MATIC</option>
+              <option value="NATIVE">Native Token</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="set-payout-threshold">Auto-Sweep Threshold (USD)</label>
+            <input type="number" id="set-payout-threshold" step="1" min="1" placeholder="10" />
+          </div>
+          <div class="setting-row">
+            <button class="btn btn-green" onclick="savePayoutSettings()">💾 Save Payout Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lightning / Cash App -->
+      <div class="card">
+        <div class="card-head">⚡ Lightning / Cash App</div>
+        <div class="settings-hint" style="margin:0.5rem 0">
+          <span>💡</span>
+          Enter your $cashtag or Lightning address to receive BTC payouts.
+        </div>
+        <div class="settings-form">
+          <div class="setting-row">
+            <label for="set-lightning">Lightning Address / $cashtag</label>
+            <input type="text" id="set-lightning" placeholder="$YourCashTag or user@domain.com" />
+          </div>
+          <div class="setting-row">
+            <button class="btn btn-accent" onclick="saveLightningSettings()">⚡ Save Lightning</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Strategies & Chains -->
     <div class="two-col">
       <div class="card">
         <div class="card-head">⚡ Strategies</div>
-        <div id="settings-strategies" class="settings-list"></div>
+        <div class="settings-form">
+          <div class="setting-row toggle-row">
+            <label>Arbitrage</label>
+            <input type="checkbox" id="set-strat-arb" checked onchange="updateStrategySetting('arbitrage', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Yield Farming</label>
+            <input type="checkbox" id="set-strat-yield" checked onchange="updateStrategySetting('yield_farming', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Liquidity Mining</label>
+            <input type="checkbox" id="set-strat-lp" checked onchange="updateStrategySetting('liquidity_mining', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Liquidation</label>
+            <input type="checkbox" id="set-strat-liq" checked onchange="updateStrategySetting('liquidation', this.checked)" />
+          </div>
+        </div>
       </div>
       <div class="card">
         <div class="card-head">🔗 Chains</div>
-        <div id="settings-chains" class="settings-list"></div>
+        <div class="settings-form">
+          <div class="setting-row toggle-row">
+            <label>Ethereum</label>
+            <input type="checkbox" id="set-chain-eth" checked onchange="updateChainSetting('eth', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>BSC</label>
+            <input type="checkbox" id="set-chain-bsc" checked onchange="updateChainSetting('bsc', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Polygon</label>
+            <input type="checkbox" id="set-chain-polygon" checked onchange="updateChainSetting('polygon', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Arbitrum</label>
+            <input type="checkbox" id="set-chain-arbitrum" onchange="updateChainSetting('arbitrum', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Optimism</label>
+            <input type="checkbox" id="set-chain-optimism" onchange="updateChainSetting('optimism', this.checked)" />
+          </div>
+          <div class="setting-row toggle-row">
+            <label>Base</label>
+            <input type="checkbox" id="set-chain-base" onchange="updateChainSetting('base', this.checked)" />
+          </div>
+        </div>
       </div>
     </div>
   </div>

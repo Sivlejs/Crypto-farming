@@ -192,19 +192,51 @@ class BlockchainManager:
         from nexus.utils.gas import GasManager
         from nexus.execution.multicall import MulticallClient
 
+        connected_count = 0
+        failed_chains = []
+
         for chain, enabled in _ENABLED_MAP.items():
             if not enabled:
                 continue
-            w3 = self._connect(chain)
-            if w3:
-                self._connections[chain] = w3
-                self._gas_managers[chain] = GasManager(w3, chain)
-                try:
-                    self._multicall_clients[chain] = MulticallClient(w3)
-                except Exception:
-                    pass
+            try:
+                w3 = self._connect(chain)
+                if w3:
+                    self._connections[chain] = w3
+                    try:
+                        self._gas_managers[chain] = GasManager(w3, chain)
+                    except Exception as exc:
+                        logger.debug("GasManager init failed for %s: %s", chain, exc)
+                    try:
+                        self._multicall_clients[chain] = MulticallClient(w3)
+                    except Exception as exc:
+                        logger.debug("MulticallClient init failed for %s: %s", chain, exc)
+                    connected_count += 1
+                else:
+                    failed_chains.append(chain)
+            except Exception as exc:
+                logger.warning("Chain %s connection error: %s", chain, exc)
+                failed_chains.append(chain)
 
-        # Start block poller
+        if failed_chains:
+            logger.warning(
+                "Some chains failed to connect: %s (will retry in background)",
+                failed_chains,
+            )
+
+        # Log connection summary - don't fail if no chains connected
+        if connected_count > 0:
+            logger.info(
+                "BlockchainManager initialized: %d/%d chains connected",
+                connected_count,
+                connected_count + len(failed_chains),
+            )
+        else:
+            logger.warning(
+                "BlockchainManager: No chains connected yet. "
+                "Bot will operate in limited mode until RPCs are available."
+            )
+
+        # Start block poller (will retry failed chains)
         self._running = True
         self._poll_thread = threading.Thread(
             target=self._block_poll_loop, daemon=True, name="block-poller"
