@@ -1,0 +1,118 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════════
+# vGPU Platform – Local Dev Infrastructure
+# Usage: docker compose -f infra/docker-compose.yml up -d
+# ══════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: vgpu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vgpu
+      POSTGRES_USER: vgpu
+      POSTGRES_PASSWORD: vgpu
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vgpu"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vgpu-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Control Plane API ─────────────────────────────────────────
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: vgpu-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://vgpu:vgpu@postgres:5432/vgpu
+      SECRET_KEY: dev-secret-change-me
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Next.js Dashboard ─────────────────────────────────────────
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: vgpu-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  # ── Prometheus ────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: vgpu-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  # ── Grafana ───────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: vgpu-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
