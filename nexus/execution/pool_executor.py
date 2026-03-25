@@ -1034,9 +1034,9 @@ class PoolExecutor:
         # Filter and score pools
         # Use MIN_TVL_USD as the base minimum, with higher minimums for lower risk levels
         risk_multipliers = {
-            "low": {"min_tvl": MIN_TVL_USD * 20, "max_apy": 100, "min_confidence": 0.7},     # $1M TVL
-            "medium": {"min_tvl": MIN_TVL_USD * 4, "max_apy": 200, "min_confidence": 0.5},   # $200k TVL
-            "high": {"min_tvl": MIN_TVL_USD, "max_apy": 500, "min_confidence": 0.3},         # $50k TVL
+            "low": {"min_tvl": MIN_TVL_USD * 20, "max_apy": 100, "min_confidence": 0.7},     # 20x base TVL
+            "medium": {"min_tvl": MIN_TVL_USD * 4, "max_apy": 200, "min_confidence": 0.5},   # 4x base TVL
+            "high": {"min_tvl": MIN_TVL_USD, "max_apy": 500, "min_confidence": 0.3},         # 1x base TVL
         }
         
         params = risk_multipliers.get(risk_level, risk_multipliers["medium"])
