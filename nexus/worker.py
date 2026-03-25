@@ -90,26 +90,54 @@ def main():
     )
 
     # Keep the worker alive with heartbeat logging
+    heartbeat_count = 0
     try:
         while True:
             time.sleep(30)
+            heartbeat_count += 1
             try:
                 stats = agent.tracker.get_stats()
                 brain_status = agent.brain.status()
                 monitor_status = agent.monitor.status() or {}
                 chains_now = agent.blockchain.connected_chains()
+                efficiency = agent.status().get("efficiency", {})
+                ml_accuracy = brain_status.get("ml_accuracy", {})
                 
+                # Calculate hourly profit rate
+                uptime_hours = (time.time() - agent._start_time) / 3600 if agent._start_time else 0
+                # Avoid misleading metrics during first few minutes - require at least 0.5 hours (30 min)
+                profit_per_hour = stats.get("estimated_total_profit_usd", 0) / uptime_hours if uptime_hours >= 0.5 else 0.0
+                
+                # Standard heartbeat every 30 seconds
                 logger.info(
-                    "Heartbeat | trades=%d wins=%d profit=$%.4f | "
-                    "ML=%s regime=%s | scans=%d | chains=%d",
+                    "Heartbeat #%d | trades=%d wins=%d profit=$%.4f ($/hr=$%.4f) | "
+                    "ML=%s accuracy=%.1f%% regime=%s | scans=%d fresh=%d | chains=%d | deferred=%d",
+                    heartbeat_count,
                     stats.get("total_trades", 0),
                     stats.get("successful_trades", 0),
                     stats.get("estimated_total_profit_usd", 0),
+                    profit_per_hour,
                     "ON" if brain_status.get("ml_active") else f"OFF (need {brain_status.get('trades_until_ml', 30)} more)",
+                    ml_accuracy.get("accuracy_pct", 0),
                     (brain_status.get("market_regime") or {}).get("regime", "unknown"),
                     monitor_status.get("scan_count", 0),
+                    monitor_status.get("fresh_opportunities", 0),
                     len(chains_now),
+                    efficiency.get("deferred_trades", 0),
                 )
+                
+                # Detailed status every 5 minutes (10 heartbeats)
+                if heartbeat_count % 10 == 0:
+                    logger.info(
+                        "Detailed Status | strategy_weights=%s | gas_savings=$%.4f | "
+                        "scheduler_queue=%d submitted=%d expired=%d",
+                        brain_status.get("market_regime", {}).get("strategy_weights", {}),
+                        efficiency.get("estimated_gas_savings_usd", 0),
+                        efficiency.get("scheduler_queue_size", 0),
+                        efficiency.get("scheduler_submitted", 0),
+                        efficiency.get("scheduler_expired", 0),
+                    )
+                    
             except Exception as exc:
                 logger.debug("Heartbeat error (non-fatal): %s", exc)
                 

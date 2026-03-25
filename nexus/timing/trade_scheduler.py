@@ -194,6 +194,14 @@ class TradeScheduler:
             "expired":   self._expired,
             "gas_oracle": self._oracle.stats(),
         }
+    
+    def get_current_gas(self) -> float:
+        """Return current gas price in gwei from the oracle."""
+        return self._oracle.current_base_fee() or 0.0
+    
+    def get_target_gas(self) -> float:
+        """Return target (cheap) gas price in gwei from the oracle."""
+        return self._oracle._percentile(25) if hasattr(self._oracle, '_percentile') else self.get_current_gas() * 0.8
 
     # ── Background dispatch loop ──────────────────────────────────────────────
 

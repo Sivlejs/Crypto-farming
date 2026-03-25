@@ -7,6 +7,11 @@ for discovered opportunities. All executions respect:
   - Gas price limits
   - Slippage tolerances
   - Pre-execution sanity checks
+
+v2 Efficiency Upgrades:
+  • Dynamic slippage tolerance based on market volatility
+  • Enhanced gas estimation with EIP-1559 support
+  • Better error handling and logging
 """
 from __future__ import annotations
 
@@ -26,12 +31,74 @@ logger = get_logger(__name__)
 # Minimum ETH/BNB/MATIC to keep in wallet for gas
 RESERVE_NATIVE = 0.01
 
+# Dynamic slippage thresholds based on volatility
+SLIPPAGE_VOLATILITY_THRESHOLDS = {
+    "low": {"max_volatility": 1.0, "slippage": 0.3},      # Calm market: tight slippage
+    "medium": {"max_volatility": 3.0, "slippage": 0.7},   # Normal market: moderate slippage
+    "high": {"max_volatility": 5.0, "slippage": 1.0},     # Volatile market: wider slippage
+    "extreme": {"max_volatility": float("inf"), "slippage": 1.5},  # Very volatile: max slippage
+}
+
 
 class TransactionExecutor:
     """Signs and submits transactions for approved opportunities."""
 
-    def __init__(self, blockchain_manager: BlockchainManager):
+    def __init__(self, blockchain_manager: BlockchainManager, brain=None):
         self.bm = blockchain_manager
+        self._brain = brain  # Optional: for dynamic slippage based on volatility
+        self._execution_count = 0
+        self._success_count = 0
+        self._slippage_adjustments = 0
+    
+    def set_brain(self, brain):
+        """Attach the NexusBrain for volatility-aware slippage."""
+        self._brain = brain
+    
+    def get_dynamic_slippage(self, chain: str = "ethereum") -> float:
+        """
+        Calculate dynamic slippage tolerance based on market volatility.
+        
+        Parameters
+        ----------
+        chain : str
+            The blockchain chain (ethereum, bsc, polygon, etc.)
+            Used to determine the relevant native asset for volatility.
+        
+        Returns slippage as a percentage (e.g., 0.5 for 0.5%).
+        """
+        if not self._brain:
+            return Config.SLIPPAGE_PERCENT
+        
+        # Map chains to their native/primary assets for volatility tracking
+        chain_to_asset = {
+            "ethereum": "ETH",
+            "bsc": "BNB",
+            "polygon": "MATIC",
+            "arbitrum": "ETH",
+            "optimism": "ETH",
+            "base": "ETH",
+            "avalanche": "AVAX",
+        }
+        asset = chain_to_asset.get(chain.lower(), "ETH")
+        
+        try:
+            volatility = self._brain.classifier.volatility_pct(asset)
+            
+            for level, params in SLIPPAGE_VOLATILITY_THRESHOLDS.items():
+                if volatility <= params["max_volatility"]:
+                    dynamic_slippage = params["slippage"]
+                    if dynamic_slippage != Config.SLIPPAGE_PERCENT:
+                        self._slippage_adjustments += 1
+                        logger.debug(
+                            "Dynamic slippage: %.2f%% (chain=%s, asset=%s, volatility=%.2f%%, level=%s)",
+                            dynamic_slippage, chain, asset, volatility, level,
+                        )
+                    return dynamic_slippage
+            
+            return SLIPPAGE_VOLATILITY_THRESHOLDS["extreme"]["slippage"]
+        except Exception as exc:
+            logger.debug("Dynamic slippage calculation failed: %s", exc)
+            return Config.SLIPPAGE_PERCENT
 
     # ── Main entry point ──────────────────────────────────────
 
@@ -40,16 +107,34 @@ class TransactionExecutor:
         Attempt to execute an opportunity.
         Returns the transaction hash string on success, None on failure.
         """
+        self._execution_count += 1
+        
         if not Config.is_configured():
             logger.warning("Wallet not configured – cannot execute transactions.")
             return None
 
         if Config.DRY_RUN:
             logger.info("[DRY RUN] Simulating execution: %s", opp.description)
-            return self._simulate(opp)
+            result = self._simulate(opp)
+            if result:
+                self._success_count += 1
+            return result
 
         # Real execution path
-        return self._execute_real(opp)
+        result = self._execute_real(opp)
+        if result:
+            self._success_count += 1
+        return result
+    
+    def stats(self) -> dict:
+        """Return executor statistics."""
+        return {
+            "total_executions": self._execution_count,
+            "successful_executions": self._success_count,
+            "success_rate": round(self._success_count / max(1, self._execution_count) * 100, 2),
+            "slippage_adjustments": self._slippage_adjustments,
+            "current_slippage": self.get_dynamic_slippage(),
+        }
 
     # ── Simulation ────────────────────────────────────────────
 
@@ -191,10 +276,17 @@ class TransactionExecutor:
             logger.warning("No longer profitable on-chain – skipping")
             return None
 
-        # Apply slippage tolerance
-        slippage_factor = 1 - Config.SLIPPAGE_PERCENT / 100
+        # Apply dynamic slippage tolerance based on market volatility
+        # Apply dynamic slippage tolerance based on market volatility for this chain
+        slippage_pct = self.get_dynamic_slippage(chain=chain)
+        slippage_factor = 1 - slippage_pct / 100
         min_amount_out_buy = int(amounts_buy[-1] * slippage_factor)
         min_amount_out_sell = int(amounts_sell[-1] * slippage_factor)
+        
+        logger.debug(
+            "Arbitrage slippage: %.2f%% (chain=%s, min_buy=%d, min_sell=%d)",
+            slippage_pct, chain, min_amount_out_buy, min_amount_out_sell,
+        )
 
         deadline = int(time.time()) + 300  # 5-minute window
 

@@ -548,6 +548,97 @@ def api_timing():
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Efficiency API (v2 upgrade) ───────────────────────────────
+
+@app.route("/api/efficiency")
+def api_efficiency():
+    """
+    Return comprehensive efficiency metrics for the bot.
+    
+    Includes:
+      - Deferred trades and gas savings
+      - ML model accuracy
+      - Strategy performance by regime
+      - Scheduler queue status
+    """
+    try:
+        agent = get_agent()
+        status = agent.status()
+        brain_status = status.get("brain", {})
+        efficiency = status.get("efficiency", {})
+        monitor_status = status.get("monitor", {})
+        
+        # Calculate profitability metrics
+        uptime_hours = status.get("uptime_seconds", 0) / 3600
+        rewards = status.get("rewards", {})
+        profit = rewards.get("estimated_total_profit_usd", 0)
+        profit_per_hour = profit / max(0.1, uptime_hours)
+        
+        return jsonify({
+            "profitability": {
+                "total_profit_usd": round(profit, 4),
+                "profit_per_hour_usd": round(profit_per_hour, 4),
+                "uptime_hours": round(uptime_hours, 2),
+                "total_trades": rewards.get("total_trades", 0),
+                "successful_trades": rewards.get("successful_trades", 0),
+                "win_rate_pct": round(
+                    rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 0)) * 100, 2
+                ),
+            },
+            "gas_optimization": {
+                "deferred_trades": efficiency.get("deferred_trades", 0),
+                "estimated_gas_savings_usd": efficiency.get("estimated_gas_savings_usd", 0),
+                "scheduler_queue_size": efficiency.get("scheduler_queue_size", 0),
+                "scheduler_submitted": efficiency.get("scheduler_submitted", 0),
+                "scheduler_expired": efficiency.get("scheduler_expired", 0),
+            },
+            "ml_performance": brain_status.get("ml_accuracy", {}),
+            "market_regime": {
+                "current_regime": efficiency.get("current_regime", "unknown"),
+                "strategy_weights": efficiency.get("strategy_weights", {}),
+            },
+            "opportunity_quality": {
+                "fresh_opportunities": monitor_status.get("fresh_opportunities", 0),
+                "stale_skipped": monitor_status.get("stale_skipped", 0),
+                "staleness_threshold_sec": monitor_status.get("staleness_threshold_sec", 30),
+            },
+            "strategy_performance": monitor_status.get("strategy_performance", {}),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/efficiency/summary")
+def api_efficiency_summary():
+    """Return a concise efficiency summary for quick monitoring."""
+    try:
+        agent = get_agent()
+        status = agent.status()
+        rewards = status.get("rewards", {})
+        efficiency = status.get("efficiency", {})
+        brain = status.get("brain", {})
+        ml_acc = brain.get("ml_accuracy", {})
+        
+        uptime = status.get("uptime_seconds", 0)
+        profit = rewards.get("estimated_total_profit_usd", 0)
+        uptime_hours = uptime / 3600
+        
+        return jsonify({
+            "profit_usd": round(profit, 4),
+            # Require at least 30 min uptime for meaningful hourly rate
+            "profit_per_hour": round(profit / uptime_hours, 4) if uptime_hours >= 0.5 else 0.0,
+            "win_rate_pct": round(
+                rewards.get("successful_trades", 0) / max(1, rewards.get("total_trades", 0)) * 100, 2
+            ),
+            "ml_accuracy_pct": ml_acc.get("accuracy_pct", 0),
+            "regime": efficiency.get("current_regime", "unknown"),
+            "gas_savings_usd": efficiency.get("estimated_gas_savings_usd", 0),
+            "deferred_trades": efficiency.get("deferred_trades", 0),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 # ── WebSocket ─────────────────────────────────────────────────
 
 @socketio.on("connect")
@@ -561,6 +652,12 @@ def ws_request_update():
     _push_status()
 
 
+@socketio.on("request_efficiency")
+def ws_request_efficiency():
+    """Push efficiency metrics to the requesting client."""
+    _push_efficiency()
+
+
 def _push_status():
     try:
         agent = get_agent()
@@ -572,16 +669,54 @@ def _push_status():
         logger.debug("WebSocket push failed: %s", exc)
 
 
+def _push_efficiency():
+    """Push efficiency metrics via WebSocket."""
+    try:
+        agent = get_agent()
+        status = agent.status()
+        efficiency = status.get("efficiency", {})
+        brain = status.get("brain", {})
+        rewards = status.get("rewards", {})
+        
+        emit("efficiency_update", {
+            "profit_usd": rewards.get("estimated_total_profit_usd", 0),
+            "ml_accuracy": brain.get("ml_accuracy", {}),
+            "regime": efficiency.get("current_regime", "unknown"),
+            "strategy_weights": efficiency.get("strategy_weights", {}),
+            "gas_savings": efficiency.get("estimated_gas_savings_usd", 0),
+            "deferred_trades": efficiency.get("deferred_trades", 0),
+        })
+    except Exception as exc:
+        logger.debug("WebSocket efficiency push failed: %s", exc)
+
+
 def _background_pusher():
     """Periodically push updates to all connected WebSocket clients."""
+    push_count = 0
     while True:
         time.sleep(Config.SCAN_INTERVAL_SECONDS)
+        push_count += 1
         try:
             agent = get_agent()
-            socketio.emit("status_update", agent.status())
+            status = agent.status()
+            socketio.emit("status_update", status)
             socketio.emit("opportunities_update", agent.get_opportunities(limit=10))
             socketio.emit("trades_update", agent.get_recent_trades(limit=10))
             socketio.emit("payout_update", agent.payout.status())
+            
+            # Push efficiency updates every 3rd cycle
+            if push_count % 3 == 0:
+                efficiency = status.get("efficiency", {})
+                brain = status.get("brain", {})
+                rewards = status.get("rewards", {})
+                socketio.emit("efficiency_update", {
+                    "profit_usd": rewards.get("estimated_total_profit_usd", 0),
+                    "ml_accuracy": brain.get("ml_accuracy", {}),
+                    "regime": efficiency.get("current_regime", "unknown"),
+                    "strategy_weights": efficiency.get("strategy_weights", {}),
+                    "gas_savings": efficiency.get("estimated_gas_savings_usd", 0),
+                    "deferred_trades": efficiency.get("deferred_trades", 0),
+                })
         except Exception:
             pass
 

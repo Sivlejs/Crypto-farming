@@ -57,7 +57,15 @@ class NexusBrain:
         self._lock     = threading.Lock()
         self._trade_counter = 0
         self._last_retrain  = 0
-        logger.info("NexusBrain initialised ✓")
+        
+        # ML accuracy tracking (v2 efficiency upgrade)
+        self._ml_predictions: list[dict] = []  # Recent predictions for analysis
+        self._ml_correct_predictions = 0
+        self._ml_incorrect_predictions = 0
+        self._prediction_executed = 0  # How many opportunities ML approved
+        self._prediction_skipped = 0   # How many opportunities ML rejected
+        
+        logger.info("NexusBrain initialised ✓ (v2 with ML accuracy tracking)")
 
     # ── Core API ──────────────────────────────────────────────
 
@@ -81,15 +89,41 @@ class NexusBrain:
         Master go/no-go decision.
         Returns (True, reason) or (False, reason).
         """
+        # Generate unique prediction ID for tracking
+        import time as _time
+        pred_id = f"{opp.get('id', '')}_{_time.time()}"
+        
         profit = float(opp.get("estimated_profit_usd", 0) or 0)
         if profit < self.min_profit():
+            self._prediction_skipped += 1
             return False, f"Profit ${profit:.4f} < threshold ${self.min_profit():.4f}"
 
         ml_score = self.score(opp)
         thresh   = self.threshold()
         if ml_score < thresh:
+            self._prediction_skipped += 1
+            self._ml_predictions.append({
+                "pred_id": pred_id,
+                "opp_id": opp.get("id", ""),
+                "score": ml_score,
+                "predicted_skip": True,
+                "actual_success": None,  # Unknown - we skipped
+            })
             return False, f"ML score {ml_score:.3f} < threshold {thresh:.3f}"
 
+        # Record prediction for accuracy tracking with unique ID
+        self._ml_predictions.append({
+            "pred_id": pred_id,
+            "opp_id": opp.get("id", ""),
+            "score": ml_score,
+            "predicted_skip": False,
+            "actual_success": None,  # Will be updated in learn()
+        })
+        self._prediction_executed += 1
+        
+        # Store the prediction ID in the opportunity for later matching
+        opp["_prediction_id"] = pred_id
+        
         return True, f"ML score {ml_score:.3f} ✓ profit ${profit:.4f} ✓"
 
     def learn(self, opp: dict, success: bool, actual_profit: float):
@@ -98,6 +132,35 @@ class NexusBrain:
         Call this after EVERY executed trade.
         """
         with self._lock:
+            # Match prediction by ID if available, otherwise fall back to most recent
+            pred_id = opp.get("_prediction_id")
+            matched_pred = None
+            
+            if pred_id:
+                # Find prediction by ID
+                for pred in reversed(self._ml_predictions):
+                    if pred.get("pred_id") == pred_id and pred.get("actual_success") is None:
+                        matched_pred = pred
+                        break
+            
+            # Fallback: find most recent unresolved prediction for this opportunity
+            if not matched_pred:
+                opp_id = opp.get("id", "")
+                for pred in reversed(self._ml_predictions):
+                    if pred.get("opp_id") == opp_id and pred.get("actual_success") is None:
+                        matched_pred = pred
+                        break
+            
+            # Update matched prediction
+            if matched_pred:
+                matched_pred["actual_success"] = success
+                # Track accuracy for executed predictions only
+                if not matched_pred.get("predicted_skip", False):
+                    if success:
+                        self._ml_correct_predictions += 1
+                    else:
+                        self._ml_incorrect_predictions += 1
+            
             # Record to persistent store
             self.memory.record_outcome(opp.get("id", ""), success, actual_profit)
 
@@ -109,13 +172,28 @@ class NexusBrain:
             # Retrain ML model periodically
             if self._trade_counter % RETRAIN_EVERY == 0:
                 self._retrain()
+            
+            # Trim old predictions to prevent memory growth (keep last 1000)
+            if len(self._ml_predictions) > 1000:
+                self._ml_predictions = self._ml_predictions[-500:]
 
         logger.info(
-            "Brain learned: %s | profit=$%.4f | trades=%d",
+            "Brain learned: %s | profit=$%.4f | trades=%d | ML accuracy=%.1f%%",
             "WIN ✓" if success else "FAIL ✗",
             actual_profit,
             self._trade_counter,
+            self.ml_accuracy() * 100,
         )
+    
+    def ml_accuracy(self) -> float:
+        """
+        Return the ML model's prediction accuracy.
+        Calculated as: correct predictions / total predictions.
+        """
+        total = self._ml_correct_predictions + self._ml_incorrect_predictions
+        if total == 0:
+            return 0.0
+        return self._ml_correct_predictions / total
 
     def record_opportunity(self, opp: dict):
         """Call this when an opportunity is found (before execution decision)."""
@@ -141,6 +219,7 @@ class NexusBrain:
 
     def status(self) -> dict:
         mem_stats = self.memory.get_stats()
+        total_predictions = self._ml_correct_predictions + self._ml_incorrect_predictions
         return {
             "ml_active":        self.scorer.is_ml_active(),
             "model_info":       self.scorer.model_info(),
@@ -154,6 +233,18 @@ class NexusBrain:
             "optimizer":        self.optimizer.summary(),
             "param_changes":    mem_stats.get("param_changes", []),
             "model_history":    mem_stats.get("model_history", []),
+            # v2 ML accuracy tracking
+            "ml_accuracy": {
+                "accuracy_pct": round(self.ml_accuracy() * 100, 2),
+                "correct_predictions": self._ml_correct_predictions,
+                "incorrect_predictions": self._ml_incorrect_predictions,
+                "total_predictions": total_predictions,
+                "opportunities_approved": self._prediction_executed,
+                "opportunities_rejected": self._prediction_skipped,
+                "approval_rate_pct": round(
+                    self._prediction_executed / max(1, self._prediction_executed + self._prediction_skipped) * 100, 2
+                ),
+            },
         }
 
     # ── Internal ──────────────────────────────────────────────
