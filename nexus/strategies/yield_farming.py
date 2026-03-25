@@ -57,27 +57,47 @@ class YieldFarmingStrategy(BaseStrategy):
             return []
 
         connected = set(self.bm.connected_chains())
+        
+        # Log once if no chains are connected (common issue)
+        if not connected:
+            logger.warning(
+                "No blockchain connections available. Pool discovery will still work, "
+                "but execution will require chain connectivity. Check RPC settings."
+            )
 
         for pool in pools:
             raw_chain = pool.get("chain", "").lower()
             our_chain = CHAIN_ALIASES.get(raw_chain)
-            if our_chain not in connected:
+            
+            # Skip pools from completely unsupported chains (not in CHAIN_ALIASES)
+            if not our_chain:
                 continue
+            
+            # Track if this chain is connected for execution
+            chain_connected = our_chain in connected
 
-            apy = pool.get("apy", 0)
             tvl = pool.get("tvl_usd", 0)
-
+            
+            # Compute APY: use explicit value or sum of base + reward
+            apy_base = pool.get("apy_base", 0) or 0
+            apy_reward = pool.get("apy_reward", 0) or 0
+            apy = pool.get("apy")
+            if apy is None or apy <= 0:
+                apy = apy_base + apy_reward
+            
             if apy < MIN_APY or tvl < MIN_TVL_USD:
                 continue
 
             # Confidence: higher TVL and lower reward-portion = more stable
-            apy_base = pool.get("apy_base", 0) or 0
-            apy_reward = pool.get("apy_reward", 0) or 0
             reward_ratio = apy_reward / apy if apy > 0 else 0
 
             base_confidence = min(0.9, tvl / 10_000_000)  # caps at 0.9 for $10M TVL
             reward_penalty = reward_ratio * 0.3  # reward tokens are more volatile
             confidence = max(0.1, base_confidence - reward_penalty)
+            
+            # Reduce confidence if chain is not connected (can't execute)
+            if not chain_connected:
+                confidence *= 0.5  # Half confidence for disconnected chains
 
             # Estimated monthly profit on MAX_TRADE_USD
             monthly_profit = Config.MAX_TRADE_USD * (apy / 100) / 12
@@ -85,11 +105,14 @@ class YieldFarmingStrategy(BaseStrategy):
             if monthly_profit < Config.MIN_PROFIT_USD:
                 continue
 
+            # Build description with connection status
+            desc_prefix = "" if chain_connected else "[Not Connected] "
+            
             opp = self._make_opportunity(
                 opp_type=OpportunityType.YIELD_FARMING,
                 chain=our_chain,
                 description=(
-                    f"{pool['protocol']} – {pool['symbol']} "
+                    f"{desc_prefix}{pool['protocol']} – {pool['symbol']} "
                     f"({apy:.1f}% APY, ${tvl:,.0f} TVL)"
                 ),
                 profit_usd=monthly_profit,
@@ -103,6 +126,7 @@ class YieldFarmingStrategy(BaseStrategy):
                     "apy_reward": apy_reward,
                     "tvl_usd": tvl,
                     "monthly_profit_est": round(monthly_profit, 2),
+                    "chain_connected": chain_connected,
                 },
             )
             opportunities.append(opp)

@@ -212,20 +212,36 @@ class PriceAggregator:
                 result = []
                 for p in pools:
                     tvl = p.get("tvlUsd", 0)
-                    apy = p.get("apy")
-                    if tvl > 50_000 and apy is not None and apy > 0:
-                        result.append(
-                            {
-                                "pool_id": p.get("pool", ""),
-                                "protocol": p.get("project", ""),
-                                "chain": p.get("chain", "").lower(),
-                                "symbol": p.get("symbol", ""),
-                                "apy": round(float(apy), 2),
-                                "tvl_usd": float(tvl),
-                                "apy_reward": round(float(p.get("apyReward") or 0), 2),
-                                "apy_base": round(float(p.get("apyBase") or 0), 2),
-                            }
-                        )
+                    if tvl <= 50_000:
+                        continue
+                    
+                    # Compute APY: use explicit value or sum of base + reward
+                    apy_base = float(p.get("apyBase") or 0)
+                    apy_reward = float(p.get("apyReward") or 0)
+                    raw_apy = p.get("apy")
+                    
+                    # Use explicit apy if it's a valid positive number, otherwise compute from components
+                    if raw_apy is not None and float(raw_apy) > 0:
+                        apy = float(raw_apy)
+                    else:
+                        apy = apy_base + apy_reward
+                    
+                    # Skip pools with no yield after computation
+                    if apy <= 0:
+                        continue
+                    
+                    result.append(
+                        {
+                            "pool_id": p.get("pool", ""),
+                            "protocol": p.get("project", ""),
+                            "chain": p.get("chain", "").lower(),
+                            "symbol": p.get("symbol", ""),
+                            "apy": round(apy, 2),
+                            "tvl_usd": float(tvl),
+                            "apy_reward": round(apy_reward, 2),
+                            "apy_base": round(apy_base, 2),
+                        }
+                    )
                 result.sort(key=lambda x: x["apy"], reverse=True)
                 result = result[:100]  # Top 100 pools for more opportunities
                 

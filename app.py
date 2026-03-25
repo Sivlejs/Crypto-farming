@@ -1028,6 +1028,122 @@ def api_pool_sources():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+
+@app.route("/api/pools/diagnostic")
+def api_pool_diagnostic():
+    """
+    Comprehensive diagnostic for pool discovery issues.
+    
+    Returns detailed information about why pools might not be found,
+    including chain connectivity, API status, and configuration.
+    """
+    try:
+        from nexus.protocols.pool_sources import get_pool_fetcher, SUPPORTED_CHAINS
+        from nexus.blockchain import BlockchainManager
+        from nexus.utils.config import Config
+        
+        diagnostic = {
+            "timestamp": time.time(),
+            "issues": [],
+            "warnings": [],
+            "status": "ok",
+        }
+        
+        # Check pool fetcher status
+        fetcher = get_pool_fetcher()
+        pools = fetcher.fetch_all_pools()
+        source_status = fetcher.get_source_status()
+        
+        diagnostic["pool_sources"] = {
+            "total_pools": len(pools),
+            "sources": source_status,
+            "active_sources": sum(1 for v in source_status.values() if v),
+        }
+        
+        if len(pools) == 0:
+            diagnostic["issues"].append({
+                "severity": "critical",
+                "message": "No pools fetched from any source",
+                "suggestion": "Check network connectivity and API access to DeFi Llama, Curve, etc.",
+            })
+            diagnostic["status"] = "error"
+        elif sum(1 for v in source_status.values() if v) == 0:
+            diagnostic["warnings"].append({
+                "message": "All pool sources reported failure",
+                "suggestion": "APIs may be rate-limiting or unreachable. Using cached data if available.",
+            })
+        
+        # Check blockchain connections
+        try:
+            bm = BlockchainManager()
+            connected = bm.connected_chains()
+            diagnostic["blockchain"] = {
+                "connected_chains": connected,
+                "total_connected": len(connected),
+            }
+            
+            if not connected:
+                diagnostic["issues"].append({
+                    "severity": "high",
+                    "message": "No blockchain connections established",
+                    "suggestion": "Check RPC URLs in environment variables (ETH_RPC_URL, etc.) and ensure they're accessible.",
+                })
+                diagnostic["status"] = "degraded" if diagnostic["status"] != "error" else "error"
+        except Exception as bm_exc:
+            diagnostic["blockchain"] = {"error": str(bm_exc)}
+            diagnostic["warnings"].append({
+                "message": f"Could not check blockchain status: {bm_exc}",
+            })
+        
+        # Check chain configuration
+        chains_config = {
+            "ethereum": Config.CHAIN_ETH,
+            "bsc": Config.CHAIN_BSC,
+            "polygon": Config.CHAIN_POLYGON,
+            "arbitrum": Config.CHAIN_ARBITRUM,
+            "optimism": Config.CHAIN_OPTIMISM,
+            "base": Config.CHAIN_BASE,
+            "avalanche": Config.CHAIN_AVALANCHE,
+            "fantom": Config.CHAIN_FANTOM,
+            "gnosis": Config.CHAIN_GNOSIS,
+        }
+        enabled_chains = [c for c, enabled in chains_config.items() if enabled]
+        diagnostic["chain_config"] = {
+            "enabled": enabled_chains,
+            "disabled": [c for c, enabled in chains_config.items() if not enabled],
+        }
+        
+        if len(enabled_chains) < 3:
+            diagnostic["warnings"].append({
+                "message": f"Only {len(enabled_chains)} chains enabled",
+                "suggestion": "Enable more chains (CHAIN_ARBITRUM=true, etc.) to see more pools.",
+            })
+        
+        # Count pools by chain
+        pools_by_chain = {}
+        for p in pools:
+            pools_by_chain[p.chain] = pools_by_chain.get(p.chain, 0) + 1
+        diagnostic["pools_by_chain"] = pools_by_chain
+        
+        # Check if pools exist but can't be discovered due to chain config
+        pools_on_disabled_chains = sum(
+            count for chain, count in pools_by_chain.items()
+            if chain not in enabled_chains
+        )
+        if pools_on_disabled_chains > 0:
+            diagnostic["warnings"].append({
+                "message": f"{pools_on_disabled_chains} pools on disabled chains",
+                "suggestion": "Enable additional chains to access these pools.",
+            })
+        
+        return jsonify(diagnostic)
+    except Exception as exc:
+        return jsonify({
+            "status": "error",
+            "error": str(exc),
+            "issues": [{"severity": "critical", "message": str(exc)}],
+        }), 500
+
 @app.route("/api/blockchain/latency")
 def api_blockchain_latency():
     """Get RPC endpoint latency metrics for low-latency connection monitoring."""

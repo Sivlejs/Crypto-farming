@@ -63,12 +63,24 @@ class LiquidityMiningStrategy(BaseStrategy):
             return []
 
         connected = set(self.bm.connected_chains())
+        
+        # Log once if no chains are connected (common issue)
+        if not connected:
+            logger.warning(
+                "No blockchain connections available. Pool discovery will still work, "
+                "but execution will require chain connectivity. Check RPC settings."
+            )
 
         for pool in pools:
             raw_chain = pool.get("chain", "").lower()
             our_chain = CHAIN_ALIASES.get(raw_chain)
-            if our_chain not in connected:
+            
+            # Skip pools from completely unsupported chains (not in CHAIN_ALIASES)
+            if not our_chain:
                 continue
+            
+            # Track if this chain is connected for execution
+            chain_connected = our_chain in connected
 
             apy_reward = pool.get("apy_reward") or 0
             apy_base = pool.get("apy_base") or 0
@@ -84,6 +96,10 @@ class LiquidityMiningStrategy(BaseStrategy):
             base_confidence = 0.5 if is_low_il else 0.3
             tvl_boost = min(0.35, tvl / 20_000_000)
             confidence = min(0.95, base_confidence + tvl_boost)
+            
+            # Reduce confidence if chain is not connected (can't execute)
+            if not chain_connected:
+                confidence *= 0.5  # Half confidence for disconnected chains
 
             total_apy = apy_reward + apy_base
             monthly_profit = Config.MAX_TRADE_USD * (total_apy / 100) / 12
@@ -91,11 +107,14 @@ class LiquidityMiningStrategy(BaseStrategy):
             if monthly_profit < Config.MIN_PROFIT_USD:
                 continue
 
+            # Build description with connection status
+            desc_prefix = "" if chain_connected else "[Not Connected] "
+
             opp = self._make_opportunity(
                 opp_type=OpportunityType.LIQUIDITY_MINING,
                 chain=our_chain,
                 description=(
-                    f"LP {pool['protocol']} – {pool['symbol']} "
+                    f"{desc_prefix}LP {pool['protocol']} – {pool['symbol']} "
                     f"({total_apy:.1f}% APY: {apy_base:.1f}% fees + "
                     f"{apy_reward:.1f}% rewards)"
                 ),
@@ -111,6 +130,7 @@ class LiquidityMiningStrategy(BaseStrategy):
                     "tvl_usd": tvl,
                     "low_il": is_low_il,
                     "monthly_profit_est": round(monthly_profit, 2),
+                    "chain_connected": chain_connected,
                 },
             )
             opportunities.append(opp)
