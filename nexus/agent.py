@@ -38,18 +38,33 @@ class NexusAgent:
     """
 
     def __init__(self):
-        self.blockchain: BlockchainManager = get_blockchain_manager()
+        # Initialize components with error handling for resilience
+        try:
+            self.blockchain: BlockchainManager = get_blockchain_manager()
+        except Exception as exc:
+            logger.warning("BlockchainManager init issue: %s (continuing anyway)", exc)
+            self.blockchain = get_blockchain_manager()  # Retry once
+
         self.monitor: OpportunityMonitor = OpportunityMonitor(self.blockchain)
         self.executor: TransactionExecutor = TransactionExecutor(self.blockchain)
         self.tracker: RewardTracker = RewardTracker()
         self.payout: PayoutManager = get_payout_manager(self.blockchain)
         self.feed: PriceFeed = get_price_feed()
-        self.bundler = get_bundle_submitter()
+        
+        try:
+            self.bundler = get_bundle_submitter()
+        except Exception as exc:
+            logger.debug("Bundle submitter init failed: %s", exc)
+            self.bundler = None
+            
         self.brain: NexusBrain = get_brain()
         self.scheduler: TradeScheduler = get_trade_scheduler()
         self._running = False
         self._exec_thread: Optional[threading.Thread] = None
         self._start_time: Optional[float] = None
+        self._init_errors: list[str] = []
+        
+        logger.info("NexusAgent initialized successfully")
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -57,19 +72,37 @@ class NexusAgent:
         if self._running:
             logger.warning("NexusAgent already running.")
             return
+
+        chains_connected = len(self.blockchain.connected_chains())
         logger.info(
-            "Starting Nexus AI | dry_run=%s | wallet=%s",
+            "Starting Nexus AI | dry_run=%s | wallet=%s | chains=%d",
             Config.DRY_RUN,
             "configured" if Config.is_configured() else "NOT configured",
+            chains_connected,
         )
+
         self._running = True
         self._start_time = time.time()
-        self.feed.start()           # Start real-time price feed
-        self.monitor.start()        # Start block-triggered opportunity scanner
-        self.scheduler.start()      # Start trade scheduler + gas oracle
+
+        # Start components with error handling
+        try:
+            self.feed.start()           # Start real-time price feed
+        except Exception as exc:
+            logger.warning("Price feed start failed: %s", exc)
+
+        try:
+            self.monitor.start()        # Start block-triggered opportunity scanner
+        except Exception as exc:
+            logger.warning("Monitor start failed: %s", exc)
+
+        try:
+            self.scheduler.start()      # Start trade scheduler + gas oracle
+        except Exception as exc:
+            logger.warning("Scheduler start failed: %s", exc)
+
         self._exec_thread = threading.Thread(target=self._execution_loop, daemon=True)
         self._exec_thread.start()
-        logger.info("Nexus AI is running.")
+        logger.info("Nexus AI is running (chains: %s).", self.blockchain.connected_chains() or "waiting for connections")
 
     def stop(self):
         logger.info("Stopping Nexus AI…")
@@ -154,7 +187,7 @@ class NexusAgent:
             "rewards": self.tracker.get_stats(),
             "payout": self.payout.status(),
             "prices": self.feed.all_prices(),
-            "flashbots_ready": self.bundler.is_available(),
+            "flashbots_ready": self.bundler.is_available() if self.bundler else False,
             "brain": self.brain.status(),
         }
 

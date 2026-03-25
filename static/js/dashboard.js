@@ -1045,3 +1045,227 @@ setInterval(() => {
 }, 20_000);
 
 setTimeout(() => loadTiming(), 3000);
+
+// ══════════════════════════════════════════════════════════════
+//  SETTINGS TAB — Coinbase, Payout, Bot Configuration
+// ══════════════════════════════════════════════════════════════
+
+let _settingsCache = {};
+
+async function loadSettings() {
+  try {
+    const resp = await fetch('/api/settings');
+    const data = await resp.json();
+    _settingsCache = data;
+    populateSettingsForm(data);
+    toast('Settings loaded', 'info');
+  } catch(e) {
+    console.warn('Settings load error', e);
+    toast('Failed to load settings', 'error');
+  }
+}
+
+function populateSettingsForm(settings) {
+  // Bot settings
+  const minProfit = settings.min_profit_usd?.value ?? 2.0;
+  const maxGas = settings.max_gas_gwei?.value ?? 80;
+  const slippage = settings.slippage_percent?.value ?? 0.5;
+  const maxTrade = settings.max_trade_usd?.value ?? 10000;
+  const dryRun = settings.dry_run?.value ?? true;
+
+  document.getElementById('set-min-profit').value = minProfit;
+  document.getElementById('set-max-gas').value = maxGas;
+  document.getElementById('set-slippage').value = slippage;
+  document.getElementById('set-max-trade').value = maxTrade;
+  
+  // Update mode buttons
+  document.getElementById('mode-sim').classList.toggle('active', dryRun);
+  document.getElementById('mode-live').classList.toggle('active', !dryRun);
+
+  // Payout settings
+  const payoutAddr = settings.payout_address?.value ?? '';
+  const payoutChain = settings.payout_chain?.value ?? 'ethereum';
+  const payoutToken = settings.payout_token?.value ?? 'USDC';
+  const payoutThreshold = settings.payout_threshold_usd?.value ?? 10;
+  const lightningAddr = settings.lightning_address?.value ?? '';
+
+  document.getElementById('set-payout-addr').value = payoutAddr;
+  document.getElementById('set-payout-chain').value = payoutChain;
+  document.getElementById('set-payout-token').value = payoutToken;
+  document.getElementById('set-payout-threshold').value = payoutThreshold;
+  document.getElementById('set-lightning').value = lightningAddr;
+
+  // Coinbase - show configured status
+  const cbConfigured = settings.coinbase_api_key?.actual_set;
+  const cbStatus = document.getElementById('cb-status');
+  if (cbStatus) {
+    cbStatus.textContent = cbConfigured ? '✅ Configured' : '⚠️ Not configured';
+    cbStatus.className = 'status-badge ' + (cbConfigured ? 'configured' : 'not-configured');
+  }
+
+  // Strategy checkboxes
+  document.getElementById('set-strat-arb').checked = settings.strategy_arbitrage?.value ?? true;
+  document.getElementById('set-strat-yield').checked = settings.strategy_yield_farming?.value ?? true;
+  document.getElementById('set-strat-lp').checked = settings.strategy_liquidity_mining?.value ?? true;
+  document.getElementById('set-strat-liq').checked = settings.strategy_liquidation?.value ?? true;
+
+  // Chain checkboxes
+  document.getElementById('set-chain-eth').checked = settings.chain_eth?.value ?? true;
+  document.getElementById('set-chain-bsc').checked = settings.chain_bsc?.value ?? true;
+  document.getElementById('set-chain-polygon').checked = settings.chain_polygon?.value ?? true;
+  document.getElementById('set-chain-arbitrum').checked = settings.chain_arbitrum?.value ?? false;
+  document.getElementById('set-chain-optimism').checked = settings.chain_optimism?.value ?? false;
+  document.getElementById('set-chain-base').checked = settings.chain_base?.value ?? false;
+}
+
+async function updateSetting(key, value) {
+  try {
+    const resp = await fetch('/api/settings/update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key, value})
+    });
+    const result = await resp.json();
+    if (result.success) {
+      toast(`${key} updated`, 'info');
+    } else {
+      toast(`Failed: ${result.error}`, 'error');
+    }
+    return result.success;
+  } catch(e) {
+    toast('Update failed', 'error');
+    return false;
+  }
+}
+
+async function setDryRun(isDry) {
+  const success = await updateSetting('dry_run', isDry);
+  if (success) {
+    document.getElementById('mode-sim').classList.toggle('active', isDry);
+    document.getElementById('mode-live').classList.toggle('active', !isDry);
+    toast(isDry ? 'Switched to SIMULATION mode' : '⚠️ Switched to LIVE TRADING', isDry ? 'info' : 'warn');
+  }
+}
+
+async function saveCoinbaseCredentials() {
+  const apiKey = document.getElementById('set-cb-key').value.trim();
+  const apiSecret = document.getElementById('set-cb-secret').value.trim();
+  const accountId = document.getElementById('set-cb-account').value.trim();
+
+  if (!apiKey && !apiSecret) {
+    toast('Please enter API credentials', 'error');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/settings/coinbase', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        api_key: apiKey,
+        api_secret: apiSecret,
+        account_id: accountId
+      })
+    });
+    const result = await resp.json();
+    
+    const cbStatus = document.getElementById('cb-status');
+    if (result.success && result.configured) {
+      toast('✅ Coinbase credentials saved!', 'info');
+      cbStatus.textContent = '✅ Configured';
+      cbStatus.className = 'status-badge configured';
+      // Clear the input fields for security
+      document.getElementById('set-cb-key').value = '';
+      document.getElementById('set-cb-secret').value = '';
+    } else {
+      toast('Failed to save Coinbase credentials', 'error');
+      cbStatus.textContent = '⚠️ Not configured';
+      cbStatus.className = 'status-badge not-configured';
+    }
+  } catch(e) {
+    toast('Failed to save credentials', 'error');
+  }
+}
+
+async function savePayoutSettings() {
+  const addr = document.getElementById('set-payout-addr').value.trim();
+  const chain = document.getElementById('set-payout-chain').value;
+  const token = document.getElementById('set-payout-token').value;
+  const threshold = parseFloat(document.getElementById('set-payout-threshold').value) || 10;
+
+  try {
+    const resp = await fetch('/api/settings/payout', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        address: addr,
+        chain: chain,
+        token: token,
+        threshold_usd: threshold
+      })
+    });
+    const result = await resp.json();
+    
+    if (result.success) {
+      toast('✅ Payout settings saved!', 'info');
+    } else {
+      toast('Some payout settings failed to save', 'warn');
+    }
+  } catch(e) {
+    toast('Failed to save payout settings', 'error');
+  }
+}
+
+async function saveLightningSettings() {
+  const addr = document.getElementById('set-lightning').value.trim();
+  const success = await updateSetting('lightning_address', addr);
+  if (success) {
+    toast('⚡ Lightning address saved!', 'info');
+  }
+}
+
+async function saveAllSettings() {
+  const settings = {
+    min_profit_usd: parseFloat(document.getElementById('set-min-profit').value) || 2.0,
+    max_gas_gwei: parseFloat(document.getElementById('set-max-gas').value) || 80,
+    slippage_percent: parseFloat(document.getElementById('set-slippage').value) || 0.5,
+    max_trade_usd: parseFloat(document.getElementById('set-max-trade').value) || 10000,
+  };
+
+  try {
+    const resp = await fetch('/api/settings/update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings)
+    });
+    const result = await resp.json();
+    
+    if (result.success) {
+      toast('✅ All bot settings saved!', 'info');
+    } else {
+      toast(`Saved ${result.updated}/${result.total} settings`, 'warn');
+    }
+  } catch(e) {
+    toast('Failed to save settings', 'error');
+  }
+}
+
+async function updateStrategySetting(strategy, enabled) {
+  await updateSetting(`strategy_${strategy}`, enabled);
+}
+
+async function updateChainSetting(chain, enabled) {
+  await updateSetting(`chain_${chain}`, enabled);
+}
+
+// Load settings when switching to the tab
+document.querySelectorAll('.nav-item[data-tab="settings"]').forEach(n => {
+  n.addEventListener('click', loadSettings);
+});
+
+// Initial load
+setTimeout(() => {
+  if (document.querySelector('#tab-settings.active')) {
+    loadSettings();
+  }
+}, 1000);

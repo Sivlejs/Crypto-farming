@@ -238,13 +238,64 @@ class NexusChat:
                    "⚠ Real transactions will now execute. Make sure your wallet is funded.")
             )
 
+        elif intent == "settings":
+            return (
+                f"Current settings:\n"
+                f"• Mode: {'SIMULATION' if dry_run else 'LIVE'}\n"
+                f"• Min profit: {fmt_usd(Config.MIN_PROFIT_USD)}\n"
+                f"• Max gas: {Config.MAX_GAS_GWEI} Gwei\n"
+                f"• Slippage: {Config.SLIPPAGE_PERCENT}%\n"
+                f"• Payout threshold: {fmt_usd(Config.PAYOUT_THRESHOLD_USD)}\n"
+                f"• Payout mode: {payout.get('payout_mode', 'not configured')}\n"
+                f"You can change these by saying 'set min profit to $5' or visiting the Settings tab."
+            )
+
+        elif intent == "set_min_profit":
+            value = cmd.params.get("value")
+            if value:
+                return f"Setting minimum profit threshold to ${value:.2f}. I'll only execute trades above this amount."
+            return "Tell me the minimum profit amount, like 'set min profit to $5'."
+
+        elif intent == "set_gas_limit":
+            value = cmd.params.get("value")
+            if value:
+                return f"Setting maximum gas price to {value:.0f} Gwei. I'll skip trades when gas exceeds this."
+            return "Tell me the max gas price in Gwei, like 'set gas limit to 50'."
+
+        elif intent == "set_slippage":
+            value = cmd.params.get("value")
+            if value:
+                return f"Setting slippage tolerance to {value:.1f}%. Trades will fail if price moves more than this."
+            return "Tell me the slippage tolerance, like 'set slippage to 0.5 percent'."
+
+        elif intent == "set_threshold":
+            value = cmd.params.get("value")
+            if value:
+                return f"Setting payout threshold to ${value:.2f}. I'll auto-sweep profits when they reach this amount."
+            return "Tell me the payout threshold, like 'set threshold to $50'."
+
+        elif intent == "set_coinbase":
+            return (
+                "To set up Coinbase payouts, go to the Settings tab in the dashboard and enter your "
+                "Coinbase API credentials. You can get API keys at coinbase.com/settings/api. "
+                "Make sure to enable 'wallet:transactions:send' permission for the key."
+            )
+
+        elif intent == "set_payout_addr":
+            addr = cmd.params.get("address")
+            if addr:
+                return f"Setting payout address to {addr[:10]}...{addr[-6:]}. Profits will be sent here."
+            return "Tell me the wallet address, like 'set payout address to 0x...'."
+
         elif intent == "help":
             return (
-                "I understand voice and text commands. Try: "
-                "'What's my profit?', 'Start trading', 'Stop the bot', "
-                "'Show me opportunities', 'Sweep my profits', "
-                "'What's the market doing?', 'How's your brain doing?', "
-                "'Show me ETH price', or 'Give me a status update'."
+                "I understand voice and text commands. Try:\n"
+                "• 'What's my profit?' or 'Show status'\n"
+                "• 'Start trading' or 'Stop the bot'\n"
+                "• 'Sweep my profits' or 'Show payout'\n"
+                "• 'Set min profit to $5' or 'Set gas limit to 50'\n"
+                "• 'Configure Coinbase' or 'Show settings'\n"
+                "• 'What's the market doing?' or 'How's your brain?'"
             )
 
         else:
@@ -260,10 +311,15 @@ class NexusChat:
     def _action_for(cmd: ParsedCommand) -> Optional[str]:
         """Map parsed intent to a bot action string."""
         return {
-            "start":       "start",
-            "stop":        "stop",
-            "payout":      "payout",
-            "set_dry_run": "set_dry_run",
+            "start":           "start",
+            "stop":            "stop",
+            "payout":          "payout",
+            "set_dry_run":     "set_dry_run",
+            "set_min_profit":  "set_min_profit",
+            "set_gas_limit":   "set_gas_limit",
+            "set_slippage":    "set_slippage",
+            "set_threshold":   "set_threshold",
+            "set_payout_addr": "set_payout_addr",
         }.get(cmd.intent)
 
     @staticmethod
