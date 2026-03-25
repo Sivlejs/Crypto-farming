@@ -249,8 +249,15 @@ You need to provide your trading wallet details.
      - {Colors.RED}NEVER SHARE THIS WITH ANYONE!{Colors.ENDC}
      - It's 64 hex characters (with or without 0x prefix)
 
-{Colors.RED}⚠️  WARNING: Your private key will be stored in a local .env file.
-    Make sure this file is NEVER committed to git or shared.{Colors.ENDC}
+{Colors.RED}⚠️  SECURITY WARNING:{Colors.ENDC}
+{Colors.RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.ENDC}
+{Colors.RED}Your private key will be stored in plaintext in the .env file.{Colors.ENDC}
+{Colors.RED}To protect your funds:{Colors.ENDC}
+{Colors.RED}  1. NEVER commit .env to git (it's in .gitignore){Colors.ENDC}
+{Colors.RED}  2. Set file permissions: chmod 600 .env{Colors.ENDC}
+{Colors.RED}  3. Use a DEDICATED wallet with limited funds{Colors.ENDC}
+{Colors.RED}  4. Cloud deployments carry additional risk - use at your own risk{Colors.ENDC}
+{Colors.RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.ENDC}
 """)
         
         # Get wallet address
@@ -696,7 +703,7 @@ Configure how you want to receive your profits.
         lines.append(f"MIN_PROFIT_USD={self.config.get('MIN_PROFIT_USD', '1.00')}")
         lines.append(f"MAX_GAS_GWEI={self.config.get('MAX_GAS_GWEI', '80')}")
         lines.append(f"SLIPPAGE_PERCENT={self.config.get('SLIPPAGE_PERCENT', '0.5')}")
-        lines.append(f"MAX_TRADE_USD={self.config.get('MAX_TRADE_USD', '10000')}")
+        lines.append(f"MAX_TRADE_USD={self.config.get('MAX_TRADE_USD', '100')}")
         lines.append("SCAN_INTERVAL_SECONDS=10")
         lines.append("")
         

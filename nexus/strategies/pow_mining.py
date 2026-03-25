@@ -37,13 +37,20 @@ def sha256d(data: bytes) -> bytes:
 
 
 def scrypt_hash(data: bytes, n: int = 1024, r: int = 1, p: int = 1) -> bytes:
-    """Scrypt hash (used by Litecoin, Dogecoin). Falls back to SHA256d if scrypt unavailable."""
+    """
+    Scrypt hash (used by Litecoin, Dogecoin).
+    
+    Raises RuntimeError if scrypt is not available on this system.
+    """
     try:
         import hashlib
         return hashlib.scrypt(data, salt=data, n=n, r=r, p=p, dklen=32)
-    except (ValueError, AttributeError):
-        # Fallback for systems without scrypt support
-        return sha256d(data)
+    except (ValueError, AttributeError) as e:
+        raise RuntimeError(
+            "Scrypt algorithm not available on this system. "
+            "Scrypt mining requires Python 3.6+ with OpenSSL support. "
+            "Please use SHA256 algorithm or install a system with Scrypt support."
+        ) from e
 
 
 def reverse_bytes(data: bytes) -> bytes:
@@ -605,8 +612,20 @@ class CPUMiner:
                     block_hash = sha256d(header)
                 elif self.algorithm == "scrypt":
                     block_hash = scrypt_hash(header)
+                elif self.algorithm in ("ethash", "randomx", "kawpow"):
+                    # These algorithms require external miners (XMRig, T-Rex, etc.)
+                    # CPU implementation is not practical for these memory-hard algorithms
+                    raise RuntimeError(
+                        f"Algorithm '{self.algorithm}' requires an external miner. "
+                        f"Built-in CPU mining only supports: sha256, sha256d, scrypt. "
+                        f"For {self.algorithm}, please use XMRig, T-Rex, or similar external mining software."
+                    )
                 else:
-                    block_hash = sha256d(header)  # Fallback
+                    raise RuntimeError(
+                        f"Unsupported mining algorithm: '{self.algorithm}'. "
+                        f"Supported algorithms: sha256, sha256d, scrypt. "
+                        f"For ethash/randomx/kawpow, use an external miner."
+                    )
                 
                 with self._hashes_lock:
                     self._hashes_computed += 1
@@ -759,16 +778,17 @@ class PoWMiningStrategy(BaseStrategy):
         PoW mining is a continuous process. This method returns
         the current mining session as an "opportunity" with
         estimated earnings based on hashrate and pool stats.
+        
+        Note: Mining must be explicitly started via start_mining().
+        This method is read-only and does not start mining automatically.
         """
         opportunities = []
         
         if not self._is_configured():
             return opportunities
         
-        # Auto-start mining if not running
-        if not self._running:
-            self.start_mining()
-        
+        # Mining must be explicitly started - do not auto-start
+        # This prevents unexpected CPU consumption
         if not self._running or not self._stratum:
             return opportunities
         
@@ -776,13 +796,17 @@ class PoWMiningStrategy(BaseStrategy):
         stratum_stats = self._stratum.stats()
         miner_stats = self._miner.stats() if self._miner else {}
         
-        # Estimate earnings (simplified - real calculation needs coin price and network difficulty)
+        # Earnings estimation - THIS IS FOR DEMONSTRATION ONLY
+        # Real mining profitability depends on:
+        # 1. Current cryptocurrency market price
+        # 2. Network difficulty (constantly changing)
+        # 3. Block reward (halves over time for BTC)
+        # 4. Pool fees (typically 1-3%)
+        # 5. Electricity costs (not factored here)
+        # The $0.001/share estimate is purely illustrative and NOT accurate!
         hashrate = miner_stats.get("hashrate", 0)
         accepted_shares = stratum_stats.get("shares_accepted", 0)
-        
-        # Very rough estimate: ~$0.001 per share for demonstration
-        # Real earnings depend on: coin, difficulty, block reward, pool fee
-        estimated_usd = accepted_shares * 0.001
+        estimated_usd = accepted_shares * 0.001  # DEMO VALUE ONLY
         self._estimated_earnings_usd = estimated_usd
         
         # Create opportunity representing mining session
