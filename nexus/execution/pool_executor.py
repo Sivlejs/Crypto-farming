@@ -202,6 +202,15 @@ MAX_GAS_GWEI = 100
 MIN_PROFIT_TO_COMPOUND_USD = 5.0
 AUTO_COMPOUND_INTERVAL_HOURS = 24
 
+# Safety margin for Curve add_liquidity to account for pool state changes
+CURVE_SAFETY_MARGIN_FACTOR = 0.98  # 2% extra safety margin beyond slippage
+
+# Token symbol to common asset name mapping for price lookup
+TOKEN_SYMBOL_ALIASES = {
+    "AUSDC": "USDC", "AUSDT": "USDT", "ADAI": "DAI", "AWETH": "ETH",
+    "WETH": "ETH", "WBTC": "BTC", "WMATIC": "MATIC", "WBNB": "BNB",
+}
+
 
 class ExecutionStatus(Enum):
     """Status of a pool execution."""
@@ -691,8 +700,19 @@ class PoolExecutor:
             # Get decimals and calculate amount
             decimals = token_contract.functions.decimals().call()
             
-            # Get token price to calculate amount in tokens
-            token_symbol = "USDC" if "usdc" in asset_address.lower() else pool.symbol.split("-")[0].upper()
+            # Determine token symbol for price lookup with robust fallback
+            # Handle various symbol formats: "USDC", "aUSDC", "ETH-USDC", "WETH/USDC"
+            raw_symbol = pool.symbol.replace("/", "-").split("-")[0].strip().upper() if "-" in pool.symbol or "/" in pool.symbol else pool.symbol.strip().upper()
+            token_symbol = TOKEN_SYMBOL_ALIASES.get(raw_symbol, raw_symbol)
+            
+            # Fallback based on asset address if symbol parsing fails
+            if "usdc" in asset_address.lower():
+                token_symbol = "USDC"
+            elif "usdt" in asset_address.lower():
+                token_symbol = "USDT"
+            elif "dai" in asset_address.lower():
+                token_symbol = "DAI"
+            
             token_price = PriceAggregator.get_price(token_symbol) or 1.0  # Default to 1.0 for stablecoins
             amount_tokens = amount_usd / token_price
             amount_wei = int(amount_tokens * (10 ** decimals))
@@ -840,20 +860,26 @@ class PoolExecutor:
                 logger.info("Approval confirmed: %s", approve_hash.hex())
             
             # Build Curve add_liquidity transaction
-            # Curve pools typically have 2-4 coins, we're adding to the first position (usually USDC/DAI)
+            # Curve pools can have 2-4+ coins, we add to the first position (usually a stablecoin)
             curve_pool = w3.eth.contract(
                 address=pool_checksum,
                 abi=CURVE_POOL_ABI
             )
             
-            # For 3pool-style, amounts is [amount, 0, 0] - adding only to first coin
-            # Apply slippage tolerance
+            # Apply slippage tolerance with safety margin
             slippage_factor = (10000 - max_slippage_bps) / 10000
-            min_mint_amount = int(amount_wei * slippage_factor * 0.98)  # Extra 2% safety margin
+            min_mint_amount = int(amount_wei * slippage_factor * CURVE_SAFETY_MARGIN_FACTOR)
             
-            # Note: Different Curve pools have different signatures
-            # This is for 3pool-style stableswap
-            amounts = [amount_wei, 0, 0]  # Add to first coin only
+            # Determine pool coin count from symbol (e.g., "DAI-USDC-USDT" = 3 coins)
+            # Default to 3 for most Curve stableswap pools, but handle 2-coin pools too
+            symbol_parts = pool.symbol.replace("/", "-").split("-")
+            num_coins = max(len(symbol_parts), 2)  # Minimum 2 coins
+            num_coins = min(num_coins, 4)  # Cap at 4 for safety
+            
+            # Build amounts array: add to first coin only, zeros for others
+            amounts = [amount_wei] + [0] * (num_coins - 1)
+            
+            logger.debug("Curve add_liquidity: %d coins, amounts=%s", num_coins, amounts)
             
             add_liq_tx = curve_pool.functions.add_liquidity(
                 amounts,
