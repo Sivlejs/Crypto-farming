@@ -251,10 +251,28 @@ def detect_gpus() -> List[Dict[str, Any]]:
                 for line in result.stdout.split("\n"):
                     if "GPU" in line and ":" in line:
                         name = line.split(":")[-1].strip()
+                        # Use conservative 4GB estimate for unknown AMD GPUs
+                        # Actual memory should be queried via rocm-smi --showmeminfo
+                        memory_mb = 4096
+                        # Try to get actual memory
+                        try:
+                            mem_result = subprocess.run(
+                                ["rocm-smi", "-d", str(gpu_id), "--showmeminfo", "vram"],
+                                capture_output=True, text=True, timeout=5
+                            )
+                            if mem_result.returncode == 0:
+                                # Look for memory size in output
+                                import re
+                                mem_match = re.search(r"(\d+)\s*MB", mem_result.stdout, re.IGNORECASE)
+                                if mem_match:
+                                    memory_mb = int(mem_match.group(1))
+                        except Exception:
+                            pass
+                        
                         gpus.append({
                             "id": gpu_id,
                             "name": name or "AMD GPU",
-                            "memory_mb": 8192,  # Estimate
+                            "memory_mb": memory_mb,
                             "vendor": "AMD",
                             "driver": "",
                         })

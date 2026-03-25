@@ -1838,11 +1838,12 @@ function renderGPUMining(data) {
 
 function renderGPUDevice(dev) {
   const tempClass = dev.temperature_c > 85 ? 'temp-critical' : (dev.temperature_c > 75 ? 'temp-high' : '');
+  const vendorLower = (dev.vendor || '').toLowerCase();
   
   return `
     <div class="gpu-device">
       <div class="gpu-device-name">
-        <span class="badge ${dev.vendor === 'nvidia' ? 'badge-green' : 'badge-orange'}">${dev.vendor.toUpperCase()}</span>
+        <span class="badge ${vendorLower === 'nvidia' ? 'badge-green' : 'badge-orange'}">${(dev.vendor || 'Unknown').toUpperCase()}</span>
         ${dev.name}
       </div>
       <div class="gpu-device-stats">

@@ -154,6 +154,11 @@ class SimpleNeuralNetwork:
     Architecture: Input -> Hidden(64) -> Hidden(32) -> Output
     """
     
+    # Clipping bounds for sigmoid to prevent overflow in exponential calculation
+    # Values beyond these bounds would cause np.exp to overflow/underflow
+    SIGMOID_CLIP_MIN = -500
+    SIGMOID_CLIP_MAX = 500
+    
     def __init__(self, input_size: int = 14, hidden1: int = 64, hidden2: int = 32, output_size: int = 3):
         self.input_size = input_size
         
@@ -177,7 +182,8 @@ class SimpleNeuralNetwork:
         return (x > 0).astype(np.float32)
     
     def _sigmoid(self, x: np.ndarray) -> np.ndarray:
-        return 1 / (1 + np.exp(-np.clip(x, -500, 500)))
+        # Clip values to prevent overflow in np.exp()
+        return 1 / (1 + np.exp(-np.clip(x, self.SIGMOID_CLIP_MIN, self.SIGMOID_CLIP_MAX)))
     
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass through the network."""
