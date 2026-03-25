@@ -26,7 +26,17 @@ from nexus.utils.logger import get_logger
 logger = get_logger(__name__)
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "trade_memory.db"
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+try:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+except OSError as e:
+    # On read-only filesystems or permission issues, fall back to /tmp
+    logger.warning("Cannot create data directory %s: %s. Falling back to /tmp", DB_PATH.parent, e)
+    DB_PATH = Path("/tmp/nexus_data/trade_memory.db")
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as fallback_error:
+        logger.critical("Cannot create fallback data directory %s: %s", DB_PATH.parent, fallback_error)
+        raise
 
 
 class TradeMemory:

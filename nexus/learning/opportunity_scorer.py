@@ -24,7 +24,17 @@ from nexus.utils.logger import get_logger
 logger = get_logger(__name__)
 
 MODEL_DIR = Path(__file__).parent.parent.parent / "data" / "models"
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as e:
+    # On read-only filesystems or permission issues, fall back to /tmp
+    logger.warning("Cannot create models directory %s: %s. Falling back to /tmp", MODEL_DIR, e)
+    MODEL_DIR = Path("/tmp/nexus_data/models")
+    try:
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as fallback_error:
+        logger.critical("Cannot create fallback models directory %s: %s", MODEL_DIR, fallback_error)
+        raise
 CLASSIFIER_PATH = MODEL_DIR / "opp_classifier.pkl"
 REGRESSOR_PATH  = MODEL_DIR / "profit_regressor.pkl"
 

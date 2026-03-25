@@ -17,6 +17,7 @@ import os
 import signal
 import sys
 import time
+import traceback
 
 # Ensure the project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +34,11 @@ def main():
     logger.info("  Nexus AI Worker starting — DRY_RUN=%s", Config.DRY_RUN)
     logger.info("=" * 60)
 
-    agent = get_agent()
+    try:
+        agent = get_agent()
+    except Exception as exc:
+        logger.error("Failed to initialize agent: %s\nFull traceback:\n%s", exc, traceback.format_exc())
+        raise
 
     # ── Graceful shutdown ─────────────────────────────────────
     def _stop(sig, _frame):
@@ -69,4 +74,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        logger.error("Worker crashed: %s\nFull traceback:\n%s", exc, traceback.format_exc())
+        sys.exit(1)
