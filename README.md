@@ -1,277 +1,238 @@
-# ⬡ Nexus AI – Autonomous Crypto Farmer & Miner
+# vGPU Platform
 
-> A fully autonomous, self-learning crypto farming and mining AI that finds, executes, and earns from crypto opportunities across **7 blockchains** using **14 strategies** (including PoW mining) — with real-time voice chat, automatic profit payouts, and a live dashboard. Deploys in one click on [Render](https://render.com).
-
----
-
-## 🚀 Features at a Glance
-
-### 14 Farming & Mining Strategies
-| Strategy | Type | Description |
-|---|---|---|
-| **DEX Arbitrage** | ⚡ Instant | Price gaps between Uniswap/SushiSwap/PancakeSwap |
-| **Flash Arbitrage** | ⚡ Instant | Capital-free arb using Aave V3 flash loans (zero capital required) |
-| **Triangular Arbitrage** | ⚡ Instant | A→B→C→A single-DEX arbitrage |
-| **Cross-Chain Arbitrage** | 🔶 Normal | Same token on different chains (Ethereum vs Arbitrum vs Polygon) |
-| **Stablecoin Arbitrage** | ⚡ Instant | USDC/USDT/DAI de-peg opportunities |
-| **Liquidation Bot** | ⚡ Instant | Earn liquidation bonuses on Aave/Compound undercollateralized positions |
-| **Yield Farming** | ✅ Deferred | Auto-deposit into highest-APY DeFi Llama pools |
-| **Liquidity Mining** | ✅ Deferred | LP position management for reward token accumulation |
-| **Staking** | ✅ Deferred | Lido/Rocket Pool liquid staking (stETH, rETH) |
-| **Lending Rate Optimizer** | ✅ Deferred | Automatically move capital to highest lending rate |
-| **Perpetuals Funding Rate** | 🔶 Normal | Earn funding rates on GMX/dYdX when positive |
-| **Vault Optimizer** | ✅ Deferred | Yearn/Beefy/Convex best-APY auto-compounder |
-| **Governance Farming** | ✅ Deferred | CRV/CVX/veToken lock-and-earn strategies |
-| **⛏️ PoW Mining** | 🔄 Continuous | CPU/GPU mining via Stratum protocol (Bitcoin, Litecoin, Monero) |
-
-### 7 Supported Blockchains
-Ethereum · BNB Smart Chain · Polygon · **Arbitrum** · **Optimism** · **Base** · **Avalanche**
-
-### ⛏️ PoW Mining (NEW)
-Works like dedicated mining machines you can buy — connects to pools and mines crypto:
-- **Stratum Protocol** — Standard mining pool communication protocol
-- **Multiple Algorithms** — SHA-256 (Bitcoin), Scrypt (Litecoin/Dogecoin), RandomX (Monero), KawPow (Ravencoin)
-- **CPU Mining** — Built-in CPU miner with configurable thread count and intensity
-- **GPU Mining** — Supports external miners (XMRig, CGMiner, T-Rex) for higher hashrate
-- **Pool Stats** — Real-time hashrate, share acceptance rate, estimated earnings
-- **Auto-start** — Mining starts automatically when enabled and configured
-
-### Speed & MEV Protection
-- **Flashbots private bundles** — transactions never appear in the public mempool; no front-running
-- **EIP-1559 dynamic gas** — always pays the minimum required
-- **Multicall3 batch reads** — 10-50× faster opportunity scanning
-- **Block-triggered scanner** — reacts to every new block instantly
-- **Trade scheduler & gas oracle** — defers non-urgent trades to cheap gas windows
-- **4-endpoint RPC failover** per chain — zero downtime if one node goes down
-
-### 🧠 Self-Learning AI
-- **RandomForest ML model** — scores every opportunity with a success probability
-- **Bayesian parameter optimizer** — auto-tunes `min_profit_usd`, `slippage`, `max_trade_usd`, etc.
-- **Market regime classifier** — detects trending/volatile/calm conditions and shifts strategy weights
-- **Trade memory database** — every trade outcome is recorded and used to improve future decisions
-- Activates automatically after 30 executed trades
-
-### 💸 Automatic Profit Payouts
-Profits sweep automatically to your accounts when the threshold is reached:
-- **Coinbase** (via Coinbase API — USD or crypto)
-- **Cash App Bitcoin / Lightning** (via lightning address or LNURL)
-- **Any EVM wallet** (on-chain transfer: USDC, ETH, BNB, MATIC, AVAX)
-
-### 🎙️ Voice & Chat Interface
-- **Talk to Nexus** — ask questions, start/stop the bot, request payouts, all via voice or text
-- **Browser-native speech recognition** — no API key needed (Chrome/Edge)
-- **ElevenLabs neural TTS** — Nexus talks back in a premium voice (optional; falls back to browser TTS)
-- **GPT-4o intelligence** — rich, accurate answers about live bot data (optional; falls back to rule-based engine)
-- **Floating chat panel** — always accessible on every page of the dashboard
-
-### 📊 Live Dashboard (8 Tabs)
-1. **Overview** — KPIs, chain connections, live opportunity ticker, profit chart
-2. **Strategies** — all 13 strategy cards with status and metrics
-3. **Trades** — full trade history with chain/type filters
-4. **Payout** — pending balance, progress bar, payout history, destination config
-5. **Markets** — live token prices, DeFi yield table
-6. **🧠 AI Brain** — ML model status, win rate, market regime, adaptive parameters
-7. **⏱ Timing** — gas oracle stats, trade scheduler queue, cheapest gas hours
-8. **Settings** — live config from environment variables
+> A high-performance **virtual GPU compute management platform** for ML inference/training, rendering, video transcoding, and scientific simulation workloads.  
+> Supports NVIDIA vGPU, MIG slices, and PCIe passthrough as first-class resource types.
 
 ---
 
-## ⚡ Quick Start (Local)
+## Architecture
 
-### Option 1: Interactive Setup Wizard (Recommended for Beginners)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         User / Client                           │
+└────────────────────────────┬────────────────────────────────────┘
+                             │  HTTPS
+              ┌──────────────▼──────────────┐
+              │       web/  (Next.js)        │  :3000
+              │    Dashboard + UI            │
+              └──────────────┬──────────────┘
+                             │ REST
+              ┌──────────────▼──────────────┐
+              │    api/  (FastAPI)           │  :8000
+              │  Control Plane              │
+              │  • Worker auth & registry   │
+              │  • Heartbeat & inventory    │
+              │  • Job lifecycle            │
+              │  • /metrics (Prometheus)    │
+              └────┬──────────────┬─────────┘
+                   │              │
+          ┌────────▼───┐   ┌──────▼────────┐
+          │ PostgreSQL  │   │   Redis       │
+          │  :5432      │   │   :6380       │
+          └────────────┘   └───────────────┘
+                   │
+     ┌─────────────▼──────────────────────┐
+     │         worker/  (Python agent)    │
+     │  GPU Node / VM                     │
+     │  • Registers with control plane    │
+     │  • Sends GPU inventory heartbeats  │
+     │  • NVML metrics (util/mem/power)   │
+     │  • /metrics (Prometheus) :9100     │
+     └─────────────────────────────────────┘
+                   │
+     ┌─────────────▼──────────────────────┐
+     │      infra/  (Observability)       │
+     │  Prometheus :9090  Grafana :3001   │
+     └─────────────────────────────────────┘
+```
+
+---
+
+## Project Layout
+
+```
+Crypto-farming/
+├── api/            FastAPI control plane
+│   ├── app/        Application code
+│   │   ├── main.py
+│   │   ├── models.py       SQLAlchemy ORM
+│   │   ├── schemas.py      Pydantic schemas
+│   │   ├── auth.py         JWT worker tokens
+│   │   ├── config.py       Settings (env vars)
+│   │   └── routers/        workers, jobs, inventory, health
+│   ├── tests/
+│   ├── Dockerfile
+│   └── requirements.txt
+├── worker/         Worker agent (runs on GPU nodes)
+│   ├── agent/
+│   │   ├── main.py         Entry point
+│   │   ├── gpu_inventory.py  NVML/stub GPU collection
+│   │   ├── metrics.py      Prometheus gauges
+│   │   ├── client.py       Control plane HTTP client
+│   │   └── config.py
+│   ├── tests/
+│   ├── Dockerfile
+│   └── requirements.txt
+├── web/            Next.js + Tailwind dashboard
+│   ├── src/app/    Pages (/, /workers, /jobs)
+│   ├── src/components/
+│   ├── Dockerfile
+│   └── package.json
+├── infra/          Local dev infra
+│   ├── docker-compose.yml  Postgres + Redis + API + Web + Prometheus + Grafana
+│   ├── prometheus/
+│   └── grafana/
+└── .github/
+    └── workflows/ci.yml
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+- Docker & Docker Compose v2
+- Python 3.11+ (for worker)
+- Node.js 20+ (for web)
+
+### 1. Start the full stack
+
 ```bash
-git clone https://github.com/Sivlejs/Crypto-farming.git
-cd Crypto-farming
-python -m venv venv && source venv/bin/activate
+# From repo root
+docker compose -f infra/docker-compose.yml up -d
+
+# Services:
+#  API:        http://localhost:8000
+#  Dashboard:  http://localhost:3000
+#  Prometheus: http://localhost:9090
+#  Grafana:    http://localhost:3001  (admin / admin)
+```
+
+### 2. Run the API locally (without Docker)
+
+```bash
+cd api
+pip install -r requirements.txt
+export DATABASE_URL=postgresql://vgpu:vgpu@localhost:5432/vgpu
+uvicorn app.main:app --reload
+```
+
+### 3. Run a worker locally
+
+```bash
+cd worker
 pip install -r requirements.txt
 
-# Run the interactive setup wizard - it will guide you through everything!
-python setup_wizard.py
+# Configure
+export CONTROL_PLANE_URL=http://localhost:8000
+export WORKER_NAME=my-gpu-node-01
 
-# After setup is complete, start the bot
-python app.py
-# Open http://localhost:5000
+# Start
+python -m agent.main
 ```
 
-The **Setup Wizard** walks you through:
-- ✅ Wallet configuration (address & private key)
-- ✅ Blockchain RPC connections (Ethereum, Polygon, BSC, L2s)
-- ✅ Trading parameters (profit thresholds, gas limits, slippage)
-- ✅ Strategy selection (arbitrage, yield farming, liquidations, etc.)
-- ✅ Payout configuration (Coinbase, Lightning/Cash App, on-chain)
-- ✅ Optional AI features (GPT-4o chat, ElevenLabs voice)
+The worker will:
+1. Collect GPU inventory (via NVML if NVIDIA GPU is present, else empty)
+2. Register with the control plane
+3. Send heartbeats every 15s
+4. Expose Prometheus metrics on `:9100/metrics`
 
-### Option 2: Manual Configuration
+### 4. Run the web dashboard locally
+
 ```bash
-git clone https://github.com/Sivlejs/Crypto-farming.git
-cd Crypto-farming
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env — add your wallet address/key and RPC URLs at minimum
-python app.py
-# Open http://localhost:5000
-```
-
-📖 **See [SETUP_GUIDE.md](SETUP_GUIDE.md) for complete step-by-step instructions.**
-
----
-
-## 🌐 Deploy to Render (Recommended)
-
-1. Fork this repo to your GitHub account
-2. Go to [render.com](https://render.com) → **New** → **Blueprint** → connect your fork
-3. Render auto-detects `render.yaml` and creates a **web service** + **background worker**
-4. Set environment variables in the Render dashboard (see below)
-5. Click **Deploy** — your dashboard will be live in ~2 minutes
-
----
-
-## ⚙️ Environment Variables
-
-Copy `.env.example` to `.env` and fill in your values. Critical variables:
-
-### Required (Bot Won't Trade Without These)
-| Variable | Description |
-|---|---|
-| `WALLET_ADDRESS` | Your EVM wallet address (0x…) |
-| `WALLET_PRIVATE_KEY` | Wallet private key — **keep secret**, never commit to git |
-| `ETH_RPC_URL` | Ethereum RPC (Alchemy/Infura — `https://mainnet.infura.io/v3/YOUR_KEY`) |
-
-### Bot Behaviour
-| Variable | Default | Description |
-|---|---|---|
-| `DRY_RUN` | `true` | `true` = simulate only. Set `false` to go **LIVE** |
-| `MIN_PROFIT_USD` | `2.00` | Minimum estimated profit to execute a trade |
-| `MAX_GAS_GWEI` | `80` | Never pay more than this gas price |
-| `MAX_TRADE_USD` | `10000` | Max USD per single trade |
-| `SCAN_INTERVAL_SECONDS` | `10` | Fallback scan interval (block-triggered is faster) |
-
-### Payout — Coinbase
-| Variable | Description |
-|---|---|
-| `COINBASE_API_KEY` | Coinbase API key (from coinbase.com/settings/api) |
-| `COINBASE_API_SECRET` | Coinbase API secret |
-| `COINBASE_ACCOUNT_ID` | Your Coinbase USD or BTC account UUID (auto-detected if blank) |
-
-### Payout — Cash App / Lightning Bitcoin
-| Variable | Description |
-|---|---|
-| `LIGHTNING_ADDRESS` | Your Cash App Lightning address (e.g. `yourname@cashapp.com`) |
-| `ALBY_API_KEY` | Alby or LNbits API key for programmatic Lightning sends |
-| `PAYOUT_WALLET_ADDRESS` | On-chain EVM address as fallback |
-
-### Payout Settings
-| Variable | Default | Description |
-|---|---|---|
-| `PAYOUT_THRESHOLD_USD` | `10.00` | Auto-sweep when pending profits hit this amount |
-| `PAYOUT_CHAIN` | `ethereum` | Chain to collect profits on |
-| `PAYOUT_TOKEN` | `USDC` | Token to accumulate (USDC, USDT, WETH, etc.) |
-
-### Voice & AI Chat
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | Enables GPT-4o intelligent responses (optional — rule-based fallback works without it) |
-| `OPENAI_MODEL` | Model to use (default: `gpt-4o`) |
-| `ELEVENLABS_API_KEY` | Neural TTS for Nexus voice (optional — browser TTS fallback) |
-| `ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (default: "Rachel") |
-
-### ⛏️ PoW Mining
-| Variable | Default | Description |
-|---|---|---|
-| `STRATEGY_POW_MINING` | `false` | Enable PoW cryptocurrency mining |
-| `MINING_POOL_URL` | | Mining pool URL (e.g. `stratum+tcp://stratum.slushpool.com:3333`) |
-| `MINING_POOL_USER` | | Pool username/worker name (e.g. `username.worker1`) |
-| `MINING_POOL_PASSWORD` | `x` | Pool password (usually `x` or empty) |
-| `MINING_ALGORITHM` | `sha256` | Algorithm: `sha256`, `scrypt`, `ethash`, `randomx`, `kawpow` |
-| `MINING_THREADS` | `0` | CPU threads (0 = auto-detect all cores) |
-| `MINING_INTENSITY` | `50` | Mining intensity 1-100 (affects CPU usage) |
-| `MINING_PAYOUT_ADDRESS` | | Wallet address for mining rewards |
-
-### Additional Chains (Enable L2s)
-| Variable | Default | Description |
-|---|---|---|
-| `CHAIN_ARBITRUM` | `false` | Enable Arbitrum One |
-| `CHAIN_OPTIMISM` | `false` | Enable Optimism |
-| `CHAIN_BASE` | `false` | Enable Base |
-| `CHAIN_AVALANCHE` | `false` | Enable Avalanche C-Chain |
-
-### MEV / Speed
-| Variable | Description |
-|---|---|
-| `FLASHBOTS_SIGNING_KEY` | Separate key for Flashbots bundle signing (NOT your wallet key) |
-| `FLASH_CONTRACT_ETH` | Deployed `FlashArbitrage.sol` address on Ethereum |
-| `FLASH_CONTRACT_POLYGON` | Deployed `FlashArbitrage.sol` address on Polygon |
-
----
-
-## 🔐 Security
-
-- **Never commit** `WALLET_PRIVATE_KEY` or any API keys to git — use environment variables only
-- Use `DRY_RUN=true` until you've verified the bot is operating correctly
-- Set `MAX_TRADE_USD` to a safe limit while testing
-- The `FlashArbitrage.sol` contract has an owner-only withdraw function — deploy with your wallet
-- Use a **dedicated trading wallet** with only the capital you're willing to risk
-
----
-
-## 🏗️ Architecture
-
-```
-app.py (Flask + SocketIO)
-│
-├── nexus/agent.py          ← Main orchestrator
-├── nexus/monitor.py        ← Block-triggered opportunity scanner
-├── nexus/executor.py       ← Transaction execution (EIP-1559, Flashbots)
-├── nexus/rewards.py        ← Trade outcome tracking
-├── nexus/payout.py         ← Automatic profit distribution
-│
-├── nexus/blockchain.py     ← Multi-chain Web3 manager (7 chains, 4 RPC fallbacks each)
-├── nexus/feeds/            ← Real-time price feeds (CoinGecko WebSocket)
-│
-├── nexus/strategies/       ← 13 farming strategies
-├── nexus/protocols/        ← Uniswap V2/V3, Aave V3, Flash loans, DEX aggregator
-│
-├── nexus/execution/        ← NonceManager, Multicall3, Flashbots bundler
-├── nexus/timing/           ← Gas oracle, trade scheduler (cheapest-window timing)
-│
-├── nexus/learning/         ← ML brain (RandomForest, Bayesian optimizer, market classifier)
-│
-├── nexus/chat/             ← NexusChat (GPT-4o + rule-based fallback)
-├── nexus/voice/            ← ElevenLabs TTS + browser speech recognition
-│
-├── contracts/              ← FlashArbitrage.sol (Aave V3 flash loan arbitrage)
-│
-├── templates/dashboard.html ← 8-tab live dashboard
-├── static/                  ← CSS + JavaScript
-│
-├── render.yaml              ← Render deployment (web + worker + Redis)
-├── docker-compose.yml       ← Local Docker stack
-└── gunicorn.conf.py         ← Production server config
+cd web
+npm install --legacy-peer-deps
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
+# Open http://localhost:3000
 ```
 
 ---
 
-## 🎤 Talking to Nexus
+## How to Add a Worker
 
-Click the **💬** button (bottom-right of dashboard) to open Nexus Chat. Type or click 🎤 to speak:
+A worker is a Python agent that runs on any GPU node/VM:
 
-| Command | Example |
-|---|---|
-| Status | *"Give me a status update"* |
-| Profits | *"What's my total profit?"* |
-| Opportunities | *"What are you seeing right now?"* |
-| Payout | *"Sweep my profits to Coinbase"* |
-| Market | *"What's the market doing?"* |
-| AI brain | *"How's your ML model doing?"* |
-| Start / Stop | *"Start trading"* / *"Stop the bot"* |
-| Switch mode | *"Switch to simulation mode"* / *"Go live"* |
-| Help | *"What can you do?"* |
+1. **Install requirements**:
+   ```bash
+   pip install -r worker/requirements.txt
+   # For NVIDIA GPU metrics, also install pynvml:
+   pip install pynvml
+   ```
+
+2. **Configure** (environment variables or `.env` file):
+   ```env
+   CONTROL_PLANE_URL=https://your-api-host:8000
+   WORKER_NAME=gpu-node-prod-01     # unique name
+   HEARTBEAT_INTERVAL_SECONDS=15
+   METRICS_PORT=9100
+   ```
+
+3. **Start**:
+   ```bash
+   python -m agent.main
+   ```
+
+4. **Verify** – the worker should appear in the dashboard at `/workers` and in the API at `GET /workers`.
 
 ---
 
-## 📜 License
+## API Reference
 
-MIT — use freely, trade responsibly.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/metrics` | Prometheus metrics |
+| POST | `/workers/register` | Register a new worker |
+| POST | `/workers/heartbeat` | Worker heartbeat (auth required) |
+| GET | `/workers` | List all workers |
+| GET | `/workers/{id}/gpus` | GPU inventory for a worker |
+| GET | `/inventory/gpus` | All GPUs across all workers |
+| POST | `/jobs` | Submit a GPU compute job |
+| GET | `/jobs` | List jobs |
+| GET | `/jobs/{id}` | Get job details |
+| DELETE | `/jobs/{id}` | Cancel a job |
 
-> ⚠️ **Disclaimer**: Crypto trading involves significant financial risk. This software is provided as-is without any warranty. Always use `DRY_RUN=true` first. Never trade with funds you cannot afford to lose.
+---
+
+## GPU Resource Types
+
+| Mode | Description |
+|------|-------------|
+| `passthrough` | Physical GPU passed directly to VM |
+| `mig` | NVIDIA Multi-Instance GPU slice |
+| `vgpu` | NVIDIA vGPU profile |
+| `unknown` | Auto-detected / not yet classified |
+
+---
+
+## Configuration
+
+All services are configured via environment variables:
+
+### API
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql://vgpu:vgpu@localhost:5432/vgpu` | Postgres connection |
+| `SECRET_KEY` | `change-me-in-production` | JWT signing key |
+| `API_HOST` | `0.0.0.0` | Bind address |
+| `API_PORT` | `8000` | Listen port |
+| `ENABLE_OTEL` | `false` | Enable OpenTelemetry traces |
+
+### Worker
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTROL_PLANE_URL` | `http://localhost:8000` | API URL |
+| `WORKER_NAME` | `worker-default` | Unique worker name |
+| `HEARTBEAT_INTERVAL_SECONDS` | `15` | Heartbeat frequency |
+| `METRICS_PORT` | `9100` | Prometheus metrics port |
+| `ENABLE_OTEL` | `false` | Enable OpenTelemetry traces |
+
+---
+
+## CI/CD
+
+GitHub Actions workflows (`.github/workflows/ci.yml`) run on every push:
+- **API**: ruff lint + pytest
+- **Worker**: ruff lint + pytest
+- **Web**: eslint + next build
+- **Compose**: docker compose smoke test

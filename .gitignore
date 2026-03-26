@@ -46,3 +46,12 @@ data/
 # Scripts
 scripts/*.sh
 data/
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.turbo/
+
+# Pytest / Ruff caches
+.pytest_cache/
+.ruff_cache/
