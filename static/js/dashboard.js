@@ -2246,7 +2246,9 @@ function updateMiningActivityIndicator(data) {
   }
   
   // Show animated mining visualization
-  const blocksCount = Math.min(20, Math.max(1, Math.floor(hashrate / 100) + 1));
+  // Each block represents ~100 H/s of hashrate for visual scaling
+  const HASHRATE_PER_BLOCK = 100;
+  const blocksCount = Math.min(20, Math.max(1, Math.floor(hashrate / HASHRATE_PER_BLOCK) + 1));
   let blocks = '';
   for (let i = 0; i < blocksCount; i++) {
     const delay = (i * 0.1).toFixed(1);

@@ -822,7 +822,7 @@ input:checked + .toggle-slider:before{transform:translateX(20px);background-colo
 .hash-count{
   color:var(--text-mid);
   font-size:.85rem;
-  font-family:'Consolas', monospace;
+  font-family:'Consolas', 'Monaco', 'Courier New', monospace;
 }
 
 /* Mining tab responsive */
