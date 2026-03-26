@@ -740,6 +740,130 @@ def api_mining_vgpu_disable():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/mining/vcpu/status")
+def api_mining_vcpu_status():
+    """Get virtual CPU scaling status and configuration."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        from nexus.strategies.pow_mining import get_resource_monitor
+        from nexus.utils.config import Config
+        import multiprocessing
+        
+        detector = get_gpu_detector()
+        resource_monitor = get_resource_monitor()
+        stats = resource_monitor.stats()
+        
+        # Get actual CPU count and usage
+        cpu_count = multiprocessing.cpu_count()
+        
+        return jsonify({
+            "ok": True,
+            "scaling_enabled": Config.MINING_VCPU_SCALING_ENABLED,
+            "total_cpus": cpu_count,
+            "active_workers": detector._vcpu_workers if hasattr(detector, '_vcpu_workers') else 0,
+            "max_usage_percent": Config.MINING_VCPU_MAX_USAGE,
+            "current_cpu_percent": stats.get("cpu_percent", 0),
+            "optimal_threads": stats.get("optimal_threads", 1),
+            "cpu_affinity": Config.MINING_CPU_AFFINITY,
+            "numa_aware": Config.MINING_NUMA_AWARE,
+            "is_virtual_server": stats.get("is_virtual_server", False),
+            "memory_total_gb": stats.get("memory_total_gb", 0),
+            "memory_available_gb": stats.get("memory_available_gb", 0),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/vcpu/configure", methods=["POST"])
+def api_mining_vcpu_configure():
+    """Configure virtual CPU scaling settings."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        from nexus.utils.config import Config
+        import os
+        
+        data = request.get_json(force=True) or {}
+        updated = []
+        
+        detector = get_gpu_detector()
+        
+        if "workers" in data:
+            workers = int(data["workers"])
+            detector._vcpu_workers = workers
+            os.environ["MINING_VCPU_WORKERS"] = str(workers)
+            updated.append(f"workers={workers}")
+        
+        if "max_usage" in data:
+            max_usage = float(data["max_usage"])
+            os.environ["MINING_VCPU_MAX_USAGE"] = str(max_usage)
+            updated.append(f"max_usage={max_usage}%")
+        
+        if "scaling_enabled" in data:
+            enabled = bool(data["scaling_enabled"])
+            os.environ["MINING_VCPU_SCALING_ENABLED"] = "true" if enabled else "false"
+            updated.append(f"scaling={'enabled' if enabled else 'disabled'}")
+        
+        return jsonify({
+            "ok": True,
+            "message": "vCPU configuration updated",
+            "updated": updated,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/resources")
+def api_mining_resources():
+    """Get comprehensive mining resources status (vGPU + vCPU combined)."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        from nexus.strategies.pow_mining import get_resource_monitor
+        from nexus.utils.config import Config
+        import multiprocessing
+        
+        detector = get_gpu_detector()
+        resource_monitor = get_resource_monitor()
+        stats = resource_monitor.stats()
+        
+        # Get vGPU info
+        vgpu_devices = detector.get_vgpu_devices() if hasattr(detector, 'get_vgpu_devices') else []
+        
+        # Calculate total compute power
+        total_vgpu_compute = sum(d.compute_units for d in vgpu_devices) if vgpu_devices else 0
+        total_vcpu_workers = detector._vcpu_workers if hasattr(detector, '_vcpu_workers') else 0
+        
+        return jsonify({
+            "ok": True,
+            "vgpu": {
+                "enabled": detector.is_vgpu_enabled() if hasattr(detector, 'is_vgpu_enabled') else False,
+                "count": len(vgpu_devices),
+                "total_memory_mb": sum(d.memory_mb for d in vgpu_devices) if vgpu_devices else 0,
+                "total_compute_units": total_vgpu_compute,
+                "devices": [d.to_dict() for d in vgpu_devices],
+            },
+            "vcpu": {
+                "scaling_enabled": Config.MINING_VCPU_SCALING_ENABLED,
+                "total_cpus": multiprocessing.cpu_count(),
+                "active_workers": total_vcpu_workers,
+                "current_usage_percent": stats.get("cpu_percent", 0),
+                "max_usage_percent": Config.MINING_VCPU_MAX_USAGE,
+            },
+            "system": {
+                "is_virtual_server": stats.get("is_virtual_server", False),
+                "memory_total_gb": stats.get("memory_total_gb", 0),
+                "memory_available_gb": stats.get("memory_available_gb", 0),
+                "optimal_threads": stats.get("optimal_threads", 1),
+            },
+            "compute_power": {
+                "vgpu_units": total_vgpu_compute,
+                "vcpu_workers": total_vcpu_workers,
+                "total_score": total_vgpu_compute + (total_vcpu_workers * 10),  # Weighted score
+            }
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/mining/profitability")
 def api_mining_profitability():
     """Get coin profitability data for profit switching."""
