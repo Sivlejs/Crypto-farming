@@ -525,7 +525,7 @@ class PoolExecutor:
         
         try:
             # Get Web3 instance for chain
-            w3 = self._bm.get_w3(pool.chain)
+            w3 = self._bm.get_web3(pool.chain)
             if not w3:
                 raise ValueError(f"No Web3 connection for chain {pool.chain}")
             
