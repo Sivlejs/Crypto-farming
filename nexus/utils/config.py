@@ -95,8 +95,10 @@ class Config:
     LIGHTNING_NODE_MACAROON: str = os.getenv("LIGHTNING_NODE_MACAROON", "")  # LND
     LIGHTNING_NODE_API_KEY: str = os.getenv("LIGHTNING_NODE_API_KEY", "")   # LNbits
 
-    # Enabled strategies - PoW Mining only (other strategies removed for focus)
-    # Legacy flags kept for compatibility but disabled
+    # ── Strategies ─────────────────────────────────────────────
+    # This application is focused exclusively on PoW mining.
+    # DeFi farming strategies have been removed to focus on mining reliability.
+    # These legacy flags are kept for backward compatibility but have no effect.
     STRATEGY_ARBITRAGE: bool = False
     STRATEGY_YIELD_FARMING: bool = False
     STRATEGY_LIQUIDITY_MINING: bool = False

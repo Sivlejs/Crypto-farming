@@ -24,19 +24,16 @@ Virtual Server & Cloud GPU Optimizations:
 """
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import multiprocessing
 import os
 import socket
 import struct
-import sys
 import threading
 import time
-import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from nexus.strategies.base import BaseStrategy, Opportunity, OpportunityType
 from nexus.utils.logger import get_logger
@@ -101,35 +98,8 @@ except ImportError:
 
 logger = get_logger(__name__)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Thread Safety Utilities
-# ══════════════════════════════════════════════════════════════════════════════
-
-def safe_thread_target(func: Callable) -> Callable:
-    """
-    Decorator that wraps thread target functions to catch all exceptions.
-    
-    This prevents uncaught exceptions in daemon threads from crashing the
-    main process, especially important when running under eventlet/gunicorn
-    where native threads can interact poorly with patched sockets.
-    
-    The decorator logs any exceptions and allows the thread to exit gracefully.
-    """
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except SystemExit:
-            # Allow normal thread exit
-            pass
-        except Exception:
-            logger.error(
-                "Unhandled exception in thread '%s':\n%s",
-                threading.current_thread().name,
-                traceback.format_exc()
-            )
-    return wrapper
+# Import thread safety utility
+from nexus.utils.threading_utils import catch_thread_exceptions
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -676,7 +646,7 @@ class StratumClient:
         finally:
             self._pending_responses.pop(msg_id, None)
     
-    @safe_thread_target
+    @catch_thread_exceptions
     def _receive_loop(self):
         """Background thread to receive pool messages with auto-reconnection."""
         buffer = b""
@@ -910,7 +880,7 @@ class CPUMiner:
             self._resource_thread.start()
             logger.info("Adaptive resource monitoring enabled (max CPU: %.0f%%)", self._max_cpu_percent)
     
-    @safe_thread_target
+    @catch_thread_exceptions
     def _resource_monitor_loop(self):
         """Background thread to monitor resources and adjust mining parameters."""
         adjustment_interval = 10.0  # Check every 10 seconds
@@ -1048,7 +1018,7 @@ class CPUMiner:
         else:
             return f"{hashrate:.2f} H/s"
     
-    @safe_thread_target
+    @catch_thread_exceptions
     def _mine_worker(self, thread_id: int):
         """Mining worker thread with adaptive resource management."""
         # Each thread uses different extranonce2 range
@@ -1707,7 +1677,7 @@ class PoWMiningStrategy(BaseStrategy):
         self._ai_optimization_thread.start()
         logger.info("AI mining optimization loop started")
     
-    @safe_thread_target
+    @catch_thread_exceptions
     def _ai_optimization_loop(self):
         """Background loop for AI-driven mining optimization."""
         optimization_interval = 30.0  # Optimize every 30 seconds
@@ -2147,7 +2117,7 @@ class PoWMiningStrategy(BaseStrategy):
         self._profit_switch_enabled = False
         logger.info("Profit switching disabled")
     
-    @safe_thread_target
+    @catch_thread_exceptions
     def _profit_switch_loop(self):
         """Background loop for profit-based coin switching."""
         check_interval = 300.0  # Check every 5 minutes

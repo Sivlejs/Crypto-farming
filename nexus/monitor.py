@@ -225,7 +225,7 @@ class OpportunityMonitor:
                 "fresh_opportunities": fresh,
                 "stale_skipped": stale,
                 "staleness_threshold_sec": STALENESS_THRESHOLD_SECONDS,
-                "current_regime": self._brain.regime() if self._brain else "mining",
+                "current_regime": self._brain.regime() if self._brain else "unknown",
                 "strategy_performance": {
                     name: {
                         "profit_usd": round(self._strategies_profit.get(name, 0), 4),
