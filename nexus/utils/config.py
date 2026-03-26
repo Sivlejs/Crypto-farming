@@ -59,7 +59,8 @@ class Config:
     SCAN_INTERVAL_SECONDS: int = _int("SCAN_INTERVAL_SECONDS", 15)
 
     # Dry-run (simulate only, no real transactions)
-    DRY_RUN: bool = _bool("DRY_RUN", True)
+    # Set to False for live production mode with real transactions
+    DRY_RUN: bool = _bool("DRY_RUN", False)
 
     # ── Payout settings ───────────────────────────────────────
 
@@ -99,46 +100,49 @@ class Config:
     STRATEGY_YIELD_FARMING: bool = _bool("STRATEGY_YIELD_FARMING", True)
     STRATEGY_LIQUIDITY_MINING: bool = _bool("STRATEGY_LIQUIDITY_MINING", True)
     STRATEGY_LIQUIDATION: bool = _bool("STRATEGY_LIQUIDATION", True)
-    STRATEGY_POW_MINING: bool = _bool("STRATEGY_POW_MINING", False)
+    # PoW Mining enabled by default for GPU mining operations
+    STRATEGY_POW_MINING: bool = _bool("STRATEGY_POW_MINING", True)
 
     # ── PoW Mining settings ───────────────────────────────────
-    # Mining pool URL (Stratum protocol)
-    MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "")
+    # Mining pool URL (Stratum protocol) - default to 2Miners ETC pool for live operation
+    MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "stratum+tcp://pool.2miners.com:2020")
     # Mining pool username/worker name
     MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", "")
     # Mining pool password (usually 'x' or empty)
     MINING_POOL_PASSWORD: str = os.getenv("MINING_POOL_PASSWORD", "x")
-    # Mining algorithm: sha256, scrypt, ethash, etchash, kawpow, randomx, autolykos2, kheavyhash
-    MINING_ALGORITHM: str = os.getenv("MINING_ALGORITHM", "sha256")
+    # Mining algorithm: etchash recommended for GPU mining (ETC is profitable)
+    MINING_ALGORITHM: str = os.getenv("MINING_ALGORITHM", "etchash")
     # Number of CPU threads for mining (0 = auto-detect)
     MINING_THREADS: int = _int("MINING_THREADS", 0)
-    # Mining intensity (1-100, affects CPU/GPU usage)
-    MINING_INTENSITY: int = _int("MINING_INTENSITY", 50)
+    # Mining intensity (1-100, max intensity for live production)
+    MINING_INTENSITY: int = _int("MINING_INTENSITY", 100)
     # Payout address for mining rewards
     MINING_PAYOUT_ADDRESS: str = os.getenv("MINING_PAYOUT_ADDRESS", "")
     # ── Virtual Server Mining Optimizations ──────────────────
     # Enable adaptive resource management (auto-adjusts threads/intensity)
     MINING_ADAPTIVE_MODE: bool = _bool("MINING_ADAPTIVE_MODE", True)
-    # Maximum CPU usage percentage for mining (for throttling)
-    MINING_MAX_CPU_PERCENT: float = _float("MINING_MAX_CPU_PERCENT", 80.0)
+    # Maximum CPU usage percentage for mining (increased for live production)
+    MINING_MAX_CPU_PERCENT: float = _float("MINING_MAX_CPU_PERCENT", 95.0)
     
     # ── GPU Mining Settings ───────────────────────────────────
     # Enable GPU mining (requires OpenCL/CUDA and external miner)
     MINING_USE_GPU: bool = _bool("MINING_USE_GPU", True)
     # GPU device IDs to use (comma-separated, empty = all)
     MINING_GPU_DEVICES: str = os.getenv("MINING_GPU_DEVICES", "")
-    # Expected GPU hashrate for profitability calculations (MH/s)
-    MINING_EXPECTED_HASHRATE_MHS: float = _float("MINING_EXPECTED_HASHRATE_MHS", 30.0)
+    # Expected GPU hashrate for profitability calculations (MH/s) - increased for modern GPUs
+    MINING_EXPECTED_HASHRATE_MHS: float = _float("MINING_EXPECTED_HASHRATE_MHS", 100.0)
     # GPU power consumption estimate (watts)
-    MINING_GPU_POWER_WATTS: float = _float("MINING_GPU_POWER_WATTS", 120.0)
+    MINING_GPU_POWER_WATTS: float = _float("MINING_GPU_POWER_WATTS", 250.0)
     # Electricity cost per kWh for profit calculations
     MINING_ELECTRICITY_COST_KWH: float = _float("MINING_ELECTRICITY_COST_KWH", 0.10)
-    # Backup mining pools (comma-separated stratum URLs)
-    MINING_BACKUP_POOLS: str = os.getenv("MINING_BACKUP_POOLS", "")
+    # Backup mining pools (comma-separated stratum URLs) - default to 2Miners backup
+    MINING_BACKUP_POOLS: str = os.getenv("MINING_BACKUP_POOLS", "stratum+tcp://etc.2miners.com:1010,stratum+tcp://us-etc.2miners.com:1010")
     # Enable automatic profit switching to most profitable coin
-    MINING_PROFIT_SWITCHING: bool = _bool("MINING_PROFIT_SWITCHING", False)
-    # Minimum profit improvement % to trigger coin switch
-    MINING_PROFIT_SWITCH_THRESHOLD: float = _float("MINING_PROFIT_SWITCH_THRESHOLD", 10.0)
+    MINING_PROFIT_SWITCHING: bool = _bool("MINING_PROFIT_SWITCHING", True)
+    # Minimum profit improvement % to trigger coin switch (lowered for responsiveness)
+    MINING_PROFIT_SWITCH_THRESHOLD: float = _float("MINING_PROFIT_SWITCH_THRESHOLD", 5.0)
+    # Enable AI-powered mining optimization for maximum efficiency
+    MINING_AI_OPTIMIZATION: bool = _bool("MINING_AI_OPTIMIZATION", True)
 
     # ── Speed / MEV settings ──────────────────────────────────
 
@@ -266,6 +270,7 @@ class Config:
                     "enabled": cls.MINING_PROFIT_SWITCHING,
                     "threshold_percent": cls.MINING_PROFIT_SWITCH_THRESHOLD,
                 },
+                "ai_optimization": cls.MINING_AI_OPTIMIZATION,
                 "backup_pools": bool(cls.MINING_BACKUP_POOLS),
             },
         }

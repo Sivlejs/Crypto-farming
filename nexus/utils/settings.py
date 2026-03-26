@@ -39,8 +39,8 @@ SETTING_DEFINITIONS = {
     # Bot behavior
     "dry_run": {
         "type": "bool",
-        "default": True,
-        "description": "Simulation mode - no real transactions",
+        "default": False,
+        "description": "Live mode - real transactions (False for production)",
         "category": "bot",
     },
     "min_profit_usd": {

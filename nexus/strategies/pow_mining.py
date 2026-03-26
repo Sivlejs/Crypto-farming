@@ -1123,9 +1123,9 @@ class PoWMiningStrategy(BaseStrategy):
         self._multi_gpu_orchestrator: Optional["MultiGPUOrchestrator"] = None
         
         # AI optimizer for intelligent optimization
-        # Defaults to False - opt-in feature for stability
+        # AI optimization enabled by default for maximum performance
         self._ai_optimizer: Optional["AIMiningOptimizer"] = None
-        self._ai_optimization_enabled = getattr(self.config, 'MINING_AI_OPTIMIZATION', False)
+        self._ai_optimization_enabled = getattr(self.config, 'MINING_AI_OPTIMIZATION', True)
         self._ai_optimization_thread: Optional[threading.Thread] = None
         self._last_ai_optimization: float = 0.0
         self._last_snapshot: Optional["MiningSnapshot"] = None
