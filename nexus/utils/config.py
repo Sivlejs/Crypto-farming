@@ -114,15 +114,15 @@ class Config:
     MINING_ALGORITHM: str = os.getenv("MINING_ALGORITHM", "etchash")
     # Number of CPU threads for mining (0 = auto-detect)
     MINING_THREADS: int = _int("MINING_THREADS", 0)
-    # Mining intensity (1-100, max intensity for live production)
-    MINING_INTENSITY: int = _int("MINING_INTENSITY", 100)
+    # Mining intensity (1-100, 90% recommended for production stability)
+    MINING_INTENSITY: int = _int("MINING_INTENSITY", 90)
     # Payout address for mining rewards
     MINING_PAYOUT_ADDRESS: str = os.getenv("MINING_PAYOUT_ADDRESS", "")
     # ── Virtual Server Mining Optimizations ──────────────────
     # Enable adaptive resource management (auto-adjusts threads/intensity)
     MINING_ADAPTIVE_MODE: bool = _bool("MINING_ADAPTIVE_MODE", True)
-    # Maximum CPU usage percentage for mining (increased for live production)
-    MINING_MAX_CPU_PERCENT: float = _float("MINING_MAX_CPU_PERCENT", 95.0)
+    # Maximum CPU usage percentage for mining (85% leaves headroom for system stability)
+    MINING_MAX_CPU_PERCENT: float = _float("MINING_MAX_CPU_PERCENT", 85.0)
     
     # ── GPU Mining Settings ───────────────────────────────────
     # Enable GPU mining (requires OpenCL/CUDA and external miner)
