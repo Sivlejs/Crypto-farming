@@ -1338,39 +1338,38 @@ class PoWMiningStrategy(BaseStrategy):
             return False
         
         try:
-            # Get discovered pools sorted by profitability
-            pools = self._pool_discovery.get_pools_by_profitability(limit=5)
-            if not pools:
+            # Get the best discovered pool (sorted by profitability internally)
+            best_pool = self._pool_discovery.get_best_pool()
+            if not best_pool:
                 logger.warning("No mining pools discovered for auto-configuration")
                 return False
             
-            # Select the most profitable online pool
-            for pool in pools:
-                if pool.status.value == "online" or pool.status.value == "unknown":
-                    # Use this pool
-                    self._auto_configured_pool = pool
-                    
-                    # Create a worker name from wallet address or generate one
-                    wallet = getattr(self.config, 'MINING_PAYOUT_ADDRESS', '') or \
-                             getattr(self.config, 'WALLET_ADDRESS', '')
-                    if wallet:
-                        worker_name = f"{wallet[:8]}.nexus"
-                    else:
-                        import random
-                        worker_name = f"nexus_{random.randint(1000, 9999)}.worker"
-                    
-                    # Override config values for this session
-                    self.config.MINING_POOL_URL = pool.url
-                    self.config.MINING_POOL_USER = worker_name
-                    self.config.MINING_ALGORITHM = pool.algorithm.value
-                    
-                    logger.info(
-                        "Auto-configured mining: pool=%s, coin=%s, est_daily=$%.2f",
-                        pool.name, pool.coin, pool.estimated_daily_usd
-                    )
-                    return True
+            # Check if pool is online or unknown status
+            if best_pool.status.value in ("online", "unknown"):
+                # Use this pool
+                self._auto_configured_pool = best_pool
+                
+                # Create a worker name from wallet address or generate one
+                wallet = getattr(self.config, 'MINING_PAYOUT_ADDRESS', '') or \
+                         getattr(self.config, 'WALLET_ADDRESS', '')
+                if wallet:
+                    worker_name = f"{wallet[:8]}.nexus"
+                else:
+                    import random
+                    worker_name = f"nexus_{random.randint(1000, 9999)}.worker"
+                
+                # Override config values for this session
+                self.config.MINING_POOL_URL = best_pool.url
+                self.config.MINING_POOL_USER = worker_name
+                self.config.MINING_ALGORITHM = best_pool.algorithm.value
+                
+                logger.info(
+                    "Auto-configured mining: pool=%s, coin=%s, est_daily=$%.2f",
+                    best_pool.name, best_pool.coin, best_pool.estimated_daily_usd
+                )
+                return True
             
-            logger.warning("No online pools found for auto-configuration")
+            logger.warning("Best pool is offline: %s", best_pool.name)
             return False
             
         except Exception as e:
