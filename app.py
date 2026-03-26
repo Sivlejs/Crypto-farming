@@ -2391,6 +2391,29 @@ def _background_pusher():
             socketio.emit("trades_update", agent.get_recent_trades(limit=10))
             socketio.emit("payout_update", agent.payout.status())
             
+            # Push mining status updates every cycle for real-time visibility
+            try:
+                from nexus.strategies.pow_mining import PoWMiningStrategy, get_mining_environment_info
+                pow_strategy = None
+                for strategy in agent.monitor._strategies:
+                    if isinstance(strategy, PoWMiningStrategy):
+                        pow_strategy = strategy
+                        break
+                
+                if pow_strategy:
+                    mining_status = pow_strategy.status()
+                    socketio.emit("mining_update", mining_status)
+                else:
+                    # Strategy not enabled, send basic status
+                    socketio.emit("mining_update", {
+                        "name": "pow_mining",
+                        "configured": False,
+                        "running": False,
+                        "environment": get_mining_environment_info(),
+                    })
+            except Exception as mining_err:
+                logger.debug("Mining status push failed: %s", mining_err)
+            
             # Push efficiency updates every 3rd cycle
             if push_count % 3 == 0:
                 efficiency = status.get("efficiency", {})

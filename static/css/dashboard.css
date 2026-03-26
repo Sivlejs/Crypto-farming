@@ -718,10 +718,119 @@ input:checked + .toggle-slider:before{transform:translateX(20px);background-colo
 .kpi-value.orange{color:var(--orange)}
 .kpi-value.red{color:var(--red)}
 
+/* ═══════════════════════════════════════════════════════════════
+   Real-time Mining Activity Visualization
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Mining activity container */
+.mining-activity{
+  min-height:150px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:1rem;
+  border-radius:8px;
+  transition:all .3s ease;
+}
+.mining-activity.inactive{
+  background:linear-gradient(135deg, var(--bg3) 0%, var(--bg2) 100%);
+  border:1px dashed var(--border2);
+}
+.mining-activity.active{
+  background:linear-gradient(135deg, rgba(0, 216, 255, 0.08) 0%, rgba(123, 47, 255, 0.08) 100%);
+  border:1px solid rgba(0, 216, 255, 0.3);
+  box-shadow:0 0 20px rgba(0, 216, 255, 0.1);
+}
+
+/* Inactive state */
+.mining-inactive{
+  color:var(--text-dim);
+  font-size:1.1rem;
+  text-align:center;
+}
+
+/* Active mining visualization */
+.mining-active{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:1rem;
+  width:100%;
+}
+
+/* Hash block animation */
+.hash-animation{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  justify-content:center;
+  max-width:280px;
+}
+.hash-block{
+  font-size:1.2rem;
+  color:var(--accent);
+  animation:hashPulse 1.5s ease-in-out infinite;
+  text-shadow:0 0 10px var(--accent);
+}
+@keyframes hashPulse{
+  0%,100%{transform:scale(1);opacity:0.6}
+  50%{transform:scale(1.2);opacity:1}
+}
+
+/* Mining info row */
+.mining-info{
+  display:flex;
+  gap:1rem;
+  align-items:center;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+
+/* Simulation badge */
+.sim-badge{
+  background:linear-gradient(90deg, var(--orange), var(--yellow));
+  color:#000;
+  padding:.25rem .6rem;
+  border-radius:4px;
+  font-size:.7rem;
+  font-weight:700;
+  letter-spacing:.05em;
+  animation:simBlink 2s ease-in-out infinite;
+}
+@keyframes simBlink{
+  0%,100%{opacity:1}
+  50%{opacity:0.7}
+}
+
+/* Live badge */
+.live-badge{
+  background:linear-gradient(90deg, var(--green), #00ff88);
+  color:#000;
+  padding:.25rem .6rem;
+  border-radius:4px;
+  font-size:.7rem;
+  font-weight:700;
+  letter-spacing:.05em;
+  animation:livePulse 1.5s ease-in-out infinite;
+}
+@keyframes livePulse{
+  0%,100%{box-shadow:0 0 5px var(--green)}
+  50%{box-shadow:0 0 15px var(--green)}
+}
+
+/* Hash count display */
+.hash-count{
+  color:var(--text-mid);
+  font-size:.85rem;
+  font-family:'Consolas', monospace;
+}
+
 /* Mining tab responsive */
 @media (max-width:768px){
   .env-grid{grid-template-columns:1fr}
   .env-stats{flex-direction:column;gap:.5rem}
   .intensity-control{flex-direction:column;align-items:stretch}
   .intensity-control input[type="range"]{width:100%}
+  .mining-activity{min-height:120px}
+  .hash-animation{max-width:200px}
 }
