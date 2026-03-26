@@ -636,7 +636,8 @@ class MiningPoolDiscovery:
     def _load_known_pools(self):
         """Load known pools from database."""
         for pool_data in KNOWN_POOLS:
-            pool_id = hashlib.md5(pool_data["url"].encode()).hexdigest()[:12]
+            # Use SHA256 for generating deterministic pool IDs
+            pool_id = hashlib.sha256(pool_data["url"].encode()).hexdigest()[:12]
             
             pool = MiningPool(
                 id=pool_id,
@@ -763,18 +764,19 @@ class MiningPoolDiscovery:
         # Simplified estimation based on coin and algorithm
         # Real implementation would fetch network data from blockchain explorers
         
-        # Base estimates per MH/s per day (approximate, varies greatly)
+        # Base estimates - coins earned per MH/s per day (approximate, varies greatly)
+        # These are rough estimates that will be multiplied by user's hashrate in MH/s
         BASE_ESTIMATES = {
-            "BTC": 0.000001,    # ~$0.06/day per TH/s at current prices
-            "LTC": 0.00001,    # ~$0.001/day per MH/s
-            "DOGE": 0.0001,    # ~$0.01/day per MH/s
-            "ETC": 0.0001,     # ~$0.01/day per MH/s
-            "RVN": 0.001,      # ~$0.02/day per MH/s
-            "XMR": 0.001,      # ~$0.15/day per KH/s (CPU mining)
-            "ERG": 0.0005,     # ~$0.05/day per MH/s
-            "KAS": 0.0002,     # ~$0.02/day per MH/s
-            "FLUX": 0.0003,    # ~$0.03/day per KH/s
-            "ALPH": 0.0002,    # ~$0.02/day per MH/s
+            "BTC": 0.000001,    # Bitcoin (ASIC only - not profitable with CPU/GPU)
+            "LTC": 0.00001,    # Litecoin (ASIC recommended)
+            "DOGE": 0.0001,    # Dogecoin (merged mining with LTC)
+            "ETC": 0.0001,     # Ethereum Classic (GPU)
+            "RVN": 0.001,      # Ravencoin (GPU)
+            "XMR": 0.001,      # Monero (CPU optimized - KH/s scale)
+            "ERG": 0.0005,     # Ergo (GPU)
+            "KAS": 0.0002,     # Kaspa (GPU)
+            "FLUX": 0.0003,    # Flux (GPU)
+            "ALPH": 0.0002,    # Alephium (GPU)
         }
         
         base_rate = BASE_ESTIMATES.get(pool.coin, 0.0001)
@@ -912,7 +914,8 @@ class MiningPoolDiscovery:
         fee_percent: float = 1.0,
     ) -> MiningPool:
         """Add a custom pool."""
-        pool_id = hashlib.md5(url.encode()).hexdigest()[:12]
+        # Use SHA256 for generating deterministic pool IDs
+        pool_id = hashlib.sha256(url.encode()).hexdigest()[:12]
         
         try:
             algo = MiningAlgorithmType(algorithm.lower())

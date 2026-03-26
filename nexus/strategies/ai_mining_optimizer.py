@@ -1132,7 +1132,9 @@ class DeepQNetwork:
         layer_sizes = [self.state_size] + list(self.hidden_sizes) + [self.action_size]
         
         for i in range(len(layer_sizes) - 1):
-            # He initialization
+            # He initialization for ReLU/Leaky ReLU activations
+            # This helps prevent vanishing/exploding gradients by scaling weights
+            # based on the number of input connections: std = sqrt(2/n_in)
             w = np.random.randn(layer_sizes[i], layer_sizes[i+1]).astype(np.float32)
             w *= np.sqrt(2.0 / layer_sizes[i])
             b = np.zeros(layer_sizes[i+1], dtype=np.float32)
@@ -1972,6 +1974,12 @@ class AnomalyDetector:
     - Hardware degradation
     """
     
+    # Window sizes for efficiency trend analysis
+    RECENT_WINDOW_SIZE = 10
+    HISTORICAL_WINDOW_SIZE = 40
+    MIN_SAMPLES_FOR_TREND = 50
+    EFFICIENCY_DEGRADATION_THRESHOLD = 0.85  # 15% degradation triggers alert
+    
     def __init__(self, window_size: int = 100):
         self.window_size = window_size
         
@@ -2096,10 +2104,10 @@ class AnomalyDetector:
                 self._record_anomaly(anomaly)
         
         # Efficiency degradation (long-term trend)
-        if len(stats["efficiency"]) >= 50:
-            recent_eff = np.mean(list(stats["efficiency"])[-10:])
-            historical_eff = np.mean(list(stats["efficiency"])[:40])
-            if historical_eff > 0 and recent_eff < historical_eff * 0.85:
+        if len(stats["efficiency"]) >= self.MIN_SAMPLES_FOR_TREND:
+            recent_eff = np.mean(list(stats["efficiency"])[-self.RECENT_WINDOW_SIZE:])
+            historical_eff = np.mean(list(stats["efficiency"])[:self.HISTORICAL_WINDOW_SIZE])
+            if historical_eff > 0 and recent_eff < historical_eff * self.EFFICIENCY_DEGRADATION_THRESHOLD:
                 anomaly = {
                     "type": "efficiency_degradation",
                     "severity": "medium",
