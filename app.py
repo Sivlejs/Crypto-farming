@@ -364,6 +364,7 @@ def api_chat():
                 except Exception:
                     pass
         
+        # Settings actions don't require agent to be ready - they modify global Config
         if action == "set_dry_run":
             try:
                 dry = data.get("dry_run", True)
@@ -2476,7 +2477,7 @@ def _push_status():
     agent = _get_agent_if_ready()
     if not agent:
         # Agent not ready yet - send initializing status
-        emit("status_update", {"status": "initializing", "message": "Agent is starting up..."})
+        emit("status_update", _INITIALIZING_RESPONSE)
         return
     
     try:
@@ -2523,7 +2524,7 @@ def _background_pusher():
         # Skip updates if agent is not ready yet
         agent = _get_agent_if_ready()
         if not agent:
-            socketio.emit("status_update", {"status": "initializing", "message": "Agent is starting up..."})
+            socketio.emit("status_update", _INITIALIZING_RESPONSE)
             continue
         
         try:
