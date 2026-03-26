@@ -2270,6 +2270,62 @@ def api_efficiency_summary():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/pools/connectable")
+def api_connectable_pools():
+    """
+    Get pools that can actually be connected to and traded.
+    
+    This endpoint returns only pools where:
+    1. The chain is currently connected
+    2. A router contract is available for the protocol
+    
+    This helps ensure that displayed pools are actionable.
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        
+        limit = int(request.args.get("limit", 20))
+        executor = get_pool_executor()
+        pools = executor.get_connectable_pools(limit=limit)
+        
+        return jsonify({
+            "count": len(pools),
+            "pools": [p.to_dict() for p in pools],
+        })
+    except Exception as exc:
+        logger.warning("Failed to get connectable pools: %s", exc)
+        return jsonify({
+            "count": 0,
+            "pools": [],
+            "error": str(exc),
+        }), 500
+
+
+@app.route("/api/pools/<pool_id>/validate")
+def api_validate_pool(pool_id: str):
+    """
+    Validate that a specific pool can be connected to and traded.
+    
+    Returns detailed validation information including:
+    - Whether the pool exists
+    - Whether the chain is connected
+    - Whether a router is available
+    """
+    try:
+        from nexus.execution.pool_executor import get_pool_executor
+        
+        executor = get_pool_executor()
+        validation = executor.validate_pool_connectivity(pool_id)
+        
+        return jsonify(validation)
+    except Exception as exc:
+        return jsonify({
+            "pool_id": pool_id,
+            "valid": False,
+            "error": str(exc),
+        }), 500
+
+
 # ── WebSocket ─────────────────────────────────────────────────
 
 @socketio.on("connect")

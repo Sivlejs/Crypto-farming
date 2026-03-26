@@ -406,43 +406,92 @@ class StratumClient:
         self._recv_thread: Optional[threading.Thread] = None
         self._running = False
     
-    def connect(self) -> bool:
-        """Connect to the mining pool."""
-        try:
-            # Parse pool URL (format: stratum+tcp://host:port or host:port)
-            url = self.pool_url
-            if url.startswith("stratum+tcp://"):
-                url = url[14:]
-            elif url.startswith("stratum://"):
-                url = url[10:]
+    def connect(self, max_retries: int = 3, retry_delay: float = 5.0) -> bool:
+        """
+        Connect to the mining pool with retry logic.
+        
+        Args:
+            max_retries: Maximum number of connection attempts (default: 3)
+            retry_delay: Delay between retries in seconds (default: 5.0)
             
-            if ":" in url:
-                host, port_str = url.rsplit(":", 1)
-                port = int(port_str)
-            else:
-                host = url
-                port = 3333  # Default stratum port
+        Returns:
+            True if connected successfully, False otherwise
+        """
+        for attempt in range(max_retries):
+            try:
+                # Parse pool URL (format: stratum+tcp://host:port or host:port)
+                url = self.pool_url
+                if url.startswith("stratum+tcp://"):
+                    url = url[14:]
+                elif url.startswith("stratum://"):
+                    url = url[10:]
+                elif url.startswith("stratum+ssl://"):
+                    url = url[14:]  # SSL support
+                
+                if ":" in url:
+                    host, port_str = url.rsplit(":", 1)
+                    port = int(port_str)
+                else:
+                    host = url
+                    port = 3333  # Default stratum port
+                
+                if attempt > 0:
+                    logger.info("Retry %d/%d: Connecting to mining pool: %s:%d", 
+                               attempt + 1, max_retries, host, port)
+                else:
+                    logger.info("Connecting to mining pool: %s:%d", host, port)
+                
+                self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._socket.settimeout(30)
+                self._socket.connect((host, port))
+                self._connected = True
+                self._start_time = time.time()
+                
+                # Start receive thread
+                self._running = True
+                self._recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
+                self._recv_thread.start()
+                
+                logger.info("Connected to mining pool %s:%d", host, port)
+                return True
+                
+            except socket.timeout:
+                logger.warning("Connection timeout to %s (attempt %d/%d)", 
+                              self.pool_url, attempt + 1, max_retries)
+            except socket.gaierror as e:
+                logger.warning("DNS resolution failed for %s: %s (attempt %d/%d)", 
+                              self.pool_url, e, attempt + 1, max_retries)
+            except ConnectionRefusedError:
+                logger.warning("Connection refused by %s (attempt %d/%d)", 
+                              self.pool_url, attempt + 1, max_retries)
+            except Exception as e:
+                logger.warning("Failed to connect to mining pool: %s (attempt %d/%d)", 
+                              e, attempt + 1, max_retries)
             
-            logger.info("Connecting to mining pool: %s:%d", host, port)
-            
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.settimeout(30)
-            self._socket.connect((host, port))
-            self._connected = True
-            self._start_time = time.time()
-            
-            # Start receive thread
-            self._running = True
-            self._recv_thread = threading.Thread(target=self._receive_loop, daemon=True)
-            self._recv_thread.start()
-            
-            logger.info("Connected to mining pool %s:%d", host, port)
-            return True
-            
-        except Exception as e:
-            logger.error("Failed to connect to mining pool: %s", e)
             self._connected = False
-            return False
+            if attempt < max_retries - 1:
+                logger.info("Waiting %.1f seconds before retry...", retry_delay)
+                time.sleep(retry_delay)
+                retry_delay *= 1.5  # Exponential backoff
+        
+        logger.error("Failed to connect to mining pool %s after %d attempts", 
+                    self.pool_url, max_retries)
+        return False
+    
+    def reconnect(self) -> bool:
+        """Attempt to reconnect to the pool after a connection loss."""
+        logger.info("Attempting to reconnect to pool...")
+        self.disconnect()
+        time.sleep(1)  # Brief pause before reconnecting
+        
+        if self.connect(max_retries=5, retry_delay=10.0):
+            if self.subscribe() and self.authorize():
+                logger.info("Successfully reconnected and re-authorized")
+                return True
+            else:
+                logger.error("Reconnected but failed to re-subscribe/re-authorize")
+                self.disconnect()
+        return False
     
     def subscribe(self) -> bool:
         """Subscribe to mining notifications."""
@@ -595,17 +644,39 @@ class StratumClient:
             self._pending_responses.pop(msg_id, None)
     
     def _receive_loop(self):
-        """Background thread to receive pool messages."""
+        """Background thread to receive pool messages with auto-reconnection."""
         buffer = b""
+        reconnect_attempts = 0
+        max_reconnect_attempts = 5
         
-        while self._running and self._socket:
+        while self._running:
+            if not self._socket or not self._connected:
+                # Connection lost, attempt to reconnect
+                if reconnect_attempts < max_reconnect_attempts:
+                    reconnect_attempts += 1
+                    # Use exponential backoff for consistent behavior with initial connection
+                    backoff_delay = 5.0 * (1.5 ** (reconnect_attempts - 1))
+                    logger.info("Connection lost, attempting reconnect (%d/%d) in %.1fs...",
+                               reconnect_attempts, max_reconnect_attempts, backoff_delay)
+                    time.sleep(backoff_delay)
+                    if self.reconnect():
+                        reconnect_attempts = 0  # Reset on successful reconnect
+                        buffer = b""
+                        continue
+                else:
+                    logger.error("Max reconnection attempts reached, stopping receive loop")
+                    break
+                continue
+            
             try:
                 data = self._socket.recv(4096)
                 if not data:
-                    logger.warning("Pool connection closed")
+                    logger.warning("Pool connection closed by server")
                     self._connected = False
-                    break
+                    continue  # Will trigger reconnection attempt
                 
+                # Reset reconnect counter on successful receive
+                reconnect_attempts = 0
                 buffer += data
                 
                 while b"\n" in buffer:
@@ -615,9 +686,14 @@ class StratumClient:
                         
             except socket.timeout:
                 continue
+            except (ConnectionResetError, BrokenPipeError) as e:
+                logger.warning("Connection reset: %s", e)
+                self._connected = False
+                continue  # Will trigger reconnection attempt
             except Exception as e:
                 if self._running:
                     logger.error("Receive error: %s", e)
+                    self._connected = False
                 break
     
     def _handle_message(self, message: str):
@@ -1130,6 +1206,14 @@ class PoWMiningStrategy(BaseStrategy):
         self._last_ai_optimization: float = 0.0
         self._last_snapshot: Optional["MiningSnapshot"] = None
         
+        # Pool discovery for auto-configuration
+        self._pool_discovery = None
+        self._auto_configured_pool = None  # Store auto-selected pool info
+        # Instance variables for auto-configured values (separate from shared config)
+        self._auto_pool_url: Optional[str] = None
+        self._auto_pool_user: Optional[str] = None
+        self._auto_algorithm: Optional[str] = None
+        
         # Initialize GPU mining if module available
         if GPU_MINING_AVAILABLE:
             self._init_gpu_mining()
@@ -1235,11 +1319,74 @@ class PoWMiningStrategy(BaseStrategy):
             logger.warning("Failed to initialize GPU mining: %s", e)
     
     def _is_configured(self) -> bool:
-        """Check if mining is configured."""
-        return bool(
-            self.config.MINING_POOL_URL and
-            self.config.MINING_POOL_USER
-        )
+        """Check if mining is configured or can auto-configure."""
+        # If explicitly configured, use those settings
+        if self.config.MINING_POOL_URL and self.config.MINING_POOL_USER:
+            return True
+        
+        # If pool discovery is available, try to auto-configure
+        if self._pool_discovery:
+            return self._try_auto_configure()
+        
+        return False
+    
+    def _try_auto_configure(self) -> bool:
+        """
+        Attempt to auto-configure mining from discovered pools.
+        
+        This is called when MINING_POOL_URL or MINING_POOL_USER is not set,
+        allowing the system to automatically select a profitable pool.
+        
+        Returns:
+            True if auto-configuration succeeded, False otherwise
+        """
+        if not self._pool_discovery:
+            return False
+        
+        try:
+            # Get the best discovered pool (sorted by profitability internally)
+            best_pool = self._pool_discovery.get_best_pool()
+            if not best_pool:
+                logger.warning("No mining pools discovered for auto-configuration")
+                return False
+            
+            # Check if pool is online or unknown status
+            if best_pool.status.value in ("online", "unknown"):
+                # Use this pool
+                self._auto_configured_pool = best_pool
+                
+                # Create a worker name from wallet address or generate one
+                wallet = getattr(self.config, 'MINING_PAYOUT_ADDRESS', '') or \
+                         getattr(self.config, 'WALLET_ADDRESS', '')
+                if wallet:
+                    worker_name = f"{wallet[:8]}.nexus"
+                else:
+                    import secrets
+                    worker_name = f"nexus_{secrets.token_hex(4)}.worker"
+                
+                # Store auto-configured values in instance variables instead of modifying shared config
+                # This prevents unexpected side effects from config mutation
+                self._auto_pool_url = best_pool.url
+                self._auto_pool_user = worker_name
+                self._auto_algorithm = best_pool.algorithm.value
+                
+                # Also update config for backward compatibility
+                self.config.MINING_POOL_URL = best_pool.url
+                self.config.MINING_POOL_USER = worker_name
+                self.config.MINING_ALGORITHM = best_pool.algorithm.value
+                
+                logger.info(
+                    "Auto-configured mining: pool=%s, coin=%s, est_daily=$%.2f",
+                    best_pool.name, best_pool.coin, best_pool.estimated_daily_usd
+                )
+                return True
+            
+            logger.warning("Best pool is offline: %s", best_pool.name)
+            return False
+            
+        except Exception as e:
+            logger.warning("Auto-configuration failed: %s", e)
+            return False
     
     def _get_adaptive_mode(self) -> bool:
         """Determine if adaptive mode should be enabled."""
