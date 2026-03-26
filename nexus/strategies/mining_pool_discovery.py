@@ -621,7 +621,9 @@ class MiningPoolDiscovery:
         self._running = False
         self._update_thread: Optional[threading.Thread] = None
         self._last_update = 0.0
-        self._update_interval = 300  # 5 minutes
+        self._initial_update_interval = 30  # 30 seconds for fast startup
+        self._update_interval = 300  # 5 minutes for subsequent updates
+        self._first_update_done = False  # Track if first update is complete
         
         # AI selection state
         self._auto_select_enabled = False
@@ -682,6 +684,11 @@ class MiningPoolDiscovery:
             try:
                 self.refresh_all_pools()
                 
+                # After first update, switch to longer interval
+                if not self._first_update_done:
+                    self._first_update_done = True
+                    logger.info("Initial pool check complete, switching to %ds interval", self._update_interval)
+                
                 # Check for auto-selection
                 if self._auto_select_enabled:
                     self._auto_select_pool()
@@ -689,7 +696,9 @@ class MiningPoolDiscovery:
             except Exception as e:
                 logger.warning("Pool update error: %s", e)
             
-            time.sleep(self._update_interval)
+            # Use shorter interval until first update is complete
+            sleep_interval = self._update_interval if self._first_update_done else self._initial_update_interval
+            time.sleep(sleep_interval)
     
     def refresh_all_pools(self):
         """Refresh status and profitability for all pools."""
@@ -746,7 +755,13 @@ class MiningPoolDiscovery:
             if result == 0:
                 return PoolStatus.ONLINE, latency
             else:
-                return PoolStatus.OFFLINE, 0.0
+                # Connection failed but host may be reachable - mark as DEGRADED
+                # instead of OFFLINE to allow retry attempts
+                return PoolStatus.DEGRADED, 0.0
+        except socket.timeout:
+            # Timeout suggests network issues but pool may be accessible
+            logger.debug("Pool connectivity check timed out for %s", url)
+            return PoolStatus.DEGRADED, 0.0
         except Exception as e:
             logger.debug("Pool connectivity check failed for %s: %s", url, e)
             return PoolStatus.UNKNOWN, 0.0
@@ -862,12 +877,14 @@ class MiningPoolDiscovery:
     def get_best_pool(self, algorithm: Optional[MiningAlgorithmType] = None) -> Optional[MiningPool]:
         """Get the best scoring pool, optionally filtered by algorithm."""
         pools = self.get_all_pools() if algorithm is None else self.get_pools_by_algorithm(algorithm)
-        online_pools = [p for p in pools if p.status == PoolStatus.ONLINE]
+        # Include ONLINE and UNKNOWN pools (UNKNOWN = not yet checked, likely good)
+        # Exclude only OFFLINE (connection failed) and DEGRADED (unreliable)
+        usable_pools = [p for p in pools if p.status in (PoolStatus.ONLINE, PoolStatus.UNKNOWN)]
         
-        if not online_pools:
+        if not usable_pools:
             return None
         
-        return max(online_pools, key=lambda p: p.overall_score)
+        return max(usable_pools, key=lambda p: p.overall_score)
     
     def get_top_pools(self, limit: int = 10, algorithm: Optional[MiningAlgorithmType] = None) -> List[MiningPool]:
         """Get top scoring pools."""
