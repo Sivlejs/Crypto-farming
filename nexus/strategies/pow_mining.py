@@ -806,28 +806,52 @@ class CPUMiner:
         algorithm: str = "sha256",
         adaptive_mode: bool = True,
         max_cpu_percent: float = 80.0,
+        vcpu_scaling: bool = True,
     ):
         self.client = stratum_client
         self.algorithm = algorithm.lower()
         self._adaptive_mode = adaptive_mode
         self._max_cpu_percent = max_cpu_percent
+        self._vcpu_scaling = vcpu_scaling
         
         # Resource monitor for adaptive optimization
         self._resource_monitor = get_resource_monitor()
         
+        # vCPU scaling configuration
+        self._vcpu_workers = int(os.getenv("MINING_VCPU_WORKERS", "0"))
+        self._vcpu_max_usage = float(os.getenv("MINING_VCPU_MAX_USAGE", "95.0"))
+        
+        # Auto-detect optimal thread count based on vCPU scaling
+        cpu_count = multiprocessing.cpu_count()
+        if self._vcpu_workers == 0:
+            # Use 75% of CPUs for mining when vCPU scaling is enabled
+            self._vcpu_workers = max(1, int(cpu_count * 0.75))
+        
         # Initialize threads/intensity - use adaptive values if not specified
         if threads == 0 and adaptive_mode:
-            self.threads = self._resource_monitor.get_optimal_threads(max_cpu_percent)
+            # With vCPU scaling enabled, use more threads
+            base_threads = self._resource_monitor.get_optimal_threads(max_cpu_percent)
+            if vcpu_scaling:
+                # Scale up threads based on vCPU configuration
+                self.threads = max(base_threads, self._vcpu_workers)
+            else:
+                self.threads = base_threads
         else:
-            self.threads = threads or multiprocessing.cpu_count()
+            self.threads = threads or cpu_count
         
         if intensity == 50 and adaptive_mode:  # Default value means auto-detect
             self.intensity = self._resource_monitor.get_recommended_intensity()
+            # Boost intensity if vCPU scaling is enabled
+            if vcpu_scaling:
+                self.intensity = min(100, int(self.intensity * 1.2))  # 20% boost
         else:
             self.intensity = max(1, min(100, intensity))
         
-        # Dynamic batch size
+        # Dynamic batch size - larger batches for vCPU scaling
         self._batch_size = self._resource_monitor.get_optimal_batch_size()
+        if vcpu_scaling:
+            # Increase batch size for better throughput with vCPU scaling
+            self._batch_size = int(self._batch_size * 1.5)
         
         self._running = False
         self._paused = False  # For dynamic throttling
@@ -845,9 +869,13 @@ class CPUMiner:
         self._thread_adjustments = 0
         self._intensity_adjustments = 0
         self._throttle_events = 0
+        
+        # vCPU scaling stats
+        self._vcpu_active_workers = 0
+        self._vcpu_total_hashes = 0
     
     def start(self):
-        """Start mining workers with adaptive resource management."""
+        """Start mining workers with adaptive resource management and vCPU scaling."""
         if self._running:
             return
         
@@ -861,9 +889,14 @@ class CPUMiner:
         # Log environment info
         resource_stats = self._resource_monitor.stats()
         env_type = "virtual server" if resource_stats["is_virtual_server"] else "physical hardware"
+        
+        scaling_info = ""
+        if self._vcpu_scaling:
+            scaling_info = f", vCPU_workers={self._vcpu_workers}"
+        
         logger.info(
-            "Starting CPU miner on %s: %d threads, intensity=%d%%, algorithm=%s, batch_size=%d",
-            env_type, self.threads, self.intensity, self.algorithm, self._batch_size
+            "Starting CPU miner on %s: %d threads, intensity=%d%%, algorithm=%s, batch_size=%d%s",
+            env_type, self.threads, self.intensity, self.algorithm, self._batch_size, scaling_info
         )
         
         for i in range(self.threads):
