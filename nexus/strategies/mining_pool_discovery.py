@@ -23,12 +23,13 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
 
 from nexus.utils.logger import get_logger
+from nexus.utils.threading_utils import catch_thread_exceptions
 
 logger = get_logger(__name__)
 
@@ -678,6 +679,7 @@ class MiningPoolDiscovery:
             self._update_thread.join(timeout=5)
         logger.info("Pool discovery service stopped")
     
+    @catch_thread_exceptions
     def _update_loop(self):
         """Background loop for pool updates."""
         while self._running:
