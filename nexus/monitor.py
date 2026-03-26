@@ -141,7 +141,7 @@ class OpportunityMonitor:
             self._last_scan_ts = time.time()
 
         elapsed = time.time() - start
-        logger.debug(
+        logger.info(
             "Scan #%d in %.2fs – %d opportunities found",
             self._scan_count, elapsed, len(found),
         )

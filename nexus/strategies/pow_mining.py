@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from nexus.strategies.base import BaseStrategy, Opportunity, OpportunityType
 from nexus.utils.logger import get_logger
+from nexus.utils.threading_utils import catch_thread_exceptions
 
 # Import GPU mining components
 try:
@@ -97,9 +98,6 @@ except ImportError:
 
 
 logger = get_logger(__name__)
-
-# Import thread safety utility
-from nexus.utils.threading_utils import catch_thread_exceptions
 
 
 # ══════════════════════════════════════════════════════════════════════════════
