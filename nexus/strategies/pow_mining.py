@@ -85,10 +85,15 @@ try:
         OptimizationResult,
         get_ai_mining_optimizer,
         create_mining_snapshot,
+        # v2 Enhanced components
+        EnhancedAIMiningOptimizer,
+        get_enhanced_ai_mining_optimizer,
     )
     AI_OPTIMIZER_AVAILABLE = True
+    ENHANCED_AI_AVAILABLE = True
 except ImportError:
     AI_OPTIMIZER_AVAILABLE = False
+    ENHANCED_AI_AVAILABLE = False
 
 
 logger = get_logger(__name__)
@@ -1137,6 +1142,9 @@ class PoWMiningStrategy(BaseStrategy):
         if AI_OPTIMIZER_AVAILABLE:
             self._init_ai_optimizer()
         
+        # Initialize pool discovery service
+        self._init_pool_discovery()
+        
         # Initialize if configured
         if self._is_configured():
             self._initialize()
@@ -1160,12 +1168,28 @@ class PoWMiningStrategy(BaseStrategy):
             logger.warning("Failed to initialize GPU optimizer: %s", e)
     
     def _init_ai_optimizer(self):
-        """Initialize AI mining optimizer."""
+        """Initialize AI mining optimizer (uses enhanced v2 if available)."""
         try:
-            self._ai_optimizer = get_ai_mining_optimizer()
-            logger.info("AI mining optimizer initialized - learning from mining performance")
+            # Try enhanced v2 optimizer first
+            if ENHANCED_AI_AVAILABLE:
+                self._ai_optimizer = get_enhanced_ai_mining_optimizer()
+                logger.info("Enhanced AI mining optimizer v2 initialized - ensemble learning enabled")
+            else:
+                self._ai_optimizer = get_ai_mining_optimizer()
+                logger.info("AI mining optimizer v1 initialized - learning from mining performance")
         except Exception as e:
             logger.warning("Failed to initialize AI optimizer: %s", e)
+    
+    def _init_pool_discovery(self):
+        """Initialize pool discovery service."""
+        try:
+            from nexus.strategies.mining_pool_discovery import get_pool_discovery
+            self._pool_discovery = get_pool_discovery()
+            self._pool_discovery.start()
+            logger.info("Pool discovery service initialized")
+        except Exception as e:
+            logger.warning("Failed to initialize pool discovery: %s", e)
+            self._pool_discovery = None
     
     def _init_gpu_mining(self):
         """Initialize GPU mining components."""

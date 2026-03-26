@@ -775,6 +775,344 @@ def api_mining_pools_recommend():
         return jsonify({"error": str(exc)}), 500
 
 
+# ── Enhanced Pool Discovery API (v2) ─────────────────────────────
+
+@app.route("/api/mining/pools/discover")
+def api_mining_pools_discover():
+    """Get all discovered mining pools with profitability data for dashboard."""
+    try:
+        from nexus.strategies.mining_pool_discovery import (
+            get_pool_discovery,
+            get_available_algorithms,
+            get_available_coins,
+        )
+        
+        discovery = get_pool_discovery()
+        dashboard_data = discovery.get_dashboard_data()
+        
+        return jsonify({
+            "ok": True,
+            "available_algorithms": get_available_algorithms(),
+            "available_coins": get_available_coins(),
+            **dashboard_data,
+        })
+    except Exception as exc:
+        logger.exception("Error in pool discovery")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/refresh", methods=["POST"])
+def api_mining_pools_refresh():
+    """Force refresh all pool data."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        
+        discovery = get_pool_discovery()
+        discovery.refresh_all_pools()
+        
+        return jsonify({
+            "ok": True,
+            "message": "Pool data refreshed",
+            "stats": discovery.get_stats(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/select", methods=["POST"])
+def api_mining_pools_select():
+    """Manually select a pool for mining."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        
+        data = request.get_json(force=True) or {}
+        pool_id = data.get("pool_id", "")
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id required"}), 400
+        
+        discovery = get_pool_discovery()
+        pool = discovery.select_pool(pool_id)
+        
+        if pool:
+            return jsonify({
+                "ok": True,
+                "message": f"Pool selected: {pool.name}",
+                "pool": pool.to_dict(),
+            })
+        else:
+            return jsonify({"error": f"Pool not found: {pool_id}"}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/add", methods=["POST"])
+def api_mining_pools_add():
+    """Add a custom mining pool."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        
+        data = request.get_json(force=True) or {}
+        
+        required = ["name", "url", "algorithm", "coin"]
+        for field in required:
+            if not data.get(field):
+                return jsonify({"error": f"{field} required"}), 400
+        
+        discovery = get_pool_discovery()
+        pool = discovery.add_custom_pool(
+            name=data["name"],
+            url=data["url"],
+            algorithm=data["algorithm"],
+            coin=data["coin"],
+            coin_name=data.get("coin_name", ""),
+            fee_percent=float(data.get("fee_percent", 1.0)),
+        )
+        
+        return jsonify({
+            "ok": True,
+            "message": f"Pool added: {pool.name}",
+            "pool": pool.to_dict(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/pools/remove", methods=["POST"])
+def api_mining_pools_remove():
+    """Remove a custom mining pool."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        
+        data = request.get_json(force=True) or {}
+        pool_id = data.get("pool_id", "")
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id required"}), 400
+        
+        discovery = get_pool_discovery()
+        success = discovery.remove_pool(pool_id)
+        
+        if success:
+            return jsonify({
+                "ok": True,
+                "message": "Pool removed",
+            })
+        else:
+            return jsonify({"error": "Pool not found"}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/auto-select", methods=["POST"])
+def api_mining_auto_select():
+    """Enable or disable AI auto-selection of mining pools."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        
+        data = request.get_json(force=True) or {}
+        enabled = data.get("enabled", True)
+        
+        discovery = get_pool_discovery()
+        
+        if enabled:
+            discovery.enable_auto_select()
+            return jsonify({
+                "ok": True,
+                "message": "AI auto-select enabled",
+                "auto_select_enabled": True,
+            })
+        else:
+            discovery.disable_auto_select()
+            return jsonify({
+                "ok": True,
+                "message": "AI auto-select disabled",
+                "auto_select_enabled": False,
+            })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/auto-mine", methods=["POST"])
+def api_mining_auto_mine():
+    """
+    Enable AI-controlled mining that automatically selects the best pool and starts mining.
+    
+    Request JSON: {
+        "enabled": true/false,
+        "min_profitability_usd": 0.01,  # Minimum daily profit to start
+        "algorithms": ["randomx", "kawpow"],  # Optional filter
+    }
+    """
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        
+        data = request.get_json(force=True) or {}
+        enabled = data.get("enabled", True)
+        min_profit = float(data.get("min_profitability_usd", 0.01))
+        algo_filter = data.get("algorithms", [])
+        
+        discovery = get_pool_discovery()
+        
+        if enabled:
+            # Define callback for when AI selects a pool
+            def on_pool_selected(pool):
+                logger.info("AI selected pool for mining: %s", pool.name)
+                
+                # Check if pool meets profitability threshold
+                if pool.estimated_daily_usd >= min_profit:
+                    # Auto-start mining with selected pool
+                    try:
+                        strategy = PoWMiningStrategy()
+                        strategy.config.MINING_POOL_URL = pool.url
+                        strategy.config.MINING_ALGORITHM = pool.algorithm.value
+                        
+                        if not strategy._running:
+                            success = strategy.start_mining()
+                            if success:
+                                logger.info("AI auto-started mining on %s", pool.name)
+                    except Exception as e:
+                        logger.warning("AI failed to start mining: %s", e)
+            
+            discovery.enable_auto_select(callback=on_pool_selected)
+            
+            # Start the discovery service if not running
+            if not discovery._running:
+                discovery.start()
+            
+            return jsonify({
+                "ok": True,
+                "message": "AI auto-mining enabled",
+                "auto_mine_enabled": True,
+                "min_profitability_usd": min_profit,
+                "algorithm_filter": algo_filter,
+            })
+        else:
+            discovery.disable_auto_select()
+            return jsonify({
+                "ok": True,
+                "message": "AI auto-mining disabled",
+                "auto_mine_enabled": False,
+            })
+    except Exception as exc:
+        logger.exception("Error in auto-mine endpoint")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/ai/stats")
+def api_mining_ai_stats():
+    """Get AI mining optimizer statistics."""
+    try:
+        from nexus.strategies.ai_mining_optimizer import (
+            get_ai_mining_optimizer,
+            get_enhanced_ai_mining_optimizer,
+        )
+        
+        # Try enhanced optimizer first
+        try:
+            optimizer = get_enhanced_ai_mining_optimizer()
+            stats = optimizer.get_stats()
+            stats["version"] = "v2_enhanced"
+        except Exception:
+            optimizer = get_ai_mining_optimizer()
+            stats = optimizer.get_stats()
+            stats["version"] = "v1"
+        
+        return jsonify({
+            "ok": True,
+            **stats,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/ai/configure", methods=["POST"])
+def api_mining_ai_configure():
+    """Configure AI mining optimizer settings."""
+    try:
+        from nexus.strategies.ai_mining_optimizer import get_enhanced_ai_mining_optimizer
+        
+        data = request.get_json(force=True) or {}
+        
+        optimizer = get_enhanced_ai_mining_optimizer()
+        
+        if "use_ensemble" in data:
+            optimizer.enable_ensemble(bool(data["use_ensemble"]))
+        
+        if "auto_tune" in data:
+            optimizer.enable_auto_tune(bool(data["auto_tune"]))
+        
+        if "learning_enabled" in data:
+            optimizer.enable_learning(bool(data["learning_enabled"]))
+        
+        return jsonify({
+            "ok": True,
+            "message": "AI optimizer configured",
+            "stats": optimizer.get_stats(),
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/start-with-pool", methods=["POST"])
+def api_mining_start_with_pool():
+    """Start mining with a specific pool from the discovery list."""
+    try:
+        from nexus.strategies.mining_pool_discovery import get_pool_discovery
+        from nexus.strategies.pow_mining import PoWMiningStrategy
+        
+        data = request.get_json(force=True) or {}
+        pool_id = data.get("pool_id", "")
+        wallet_address = data.get("wallet_address", "")
+        
+        if not pool_id:
+            return jsonify({"error": "pool_id required"}), 400
+        
+        discovery = get_pool_discovery()
+        pool = discovery.get_pool(pool_id)
+        
+        if not pool:
+            return jsonify({"error": f"Pool not found: {pool_id}"}), 404
+        
+        # Select the pool
+        discovery.select_pool(pool_id)
+        
+        # Configure and start mining
+        strategy = PoWMiningStrategy()
+        
+        # Update configuration
+        strategy.config.MINING_POOL_URL = pool.url
+        strategy.config.MINING_ALGORITHM = pool.algorithm.value
+        
+        if wallet_address:
+            strategy.config.MINING_POOL_USER = wallet_address
+        
+        # Stop if already running
+        if strategy._running:
+            strategy.stop_mining()
+        
+        # Start mining
+        success = strategy.start_mining()
+        
+        if success:
+            return jsonify({
+                "ok": True,
+                "message": f"Mining started on {pool.name}",
+                "pool": pool.to_dict(),
+                "status": strategy.status(),
+            })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": "Failed to start mining",
+                "pool": pool.to_dict(),
+            }), 500
+    except Exception as exc:
+        logger.exception("Error starting mining with pool")
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/mining/wizard/system")
 def api_mining_wizard_system():
     """Get system info for mining setup wizard."""
