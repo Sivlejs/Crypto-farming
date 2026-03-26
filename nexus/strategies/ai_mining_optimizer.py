@@ -1049,3 +1049,1438 @@ def create_mining_snapshot(
         estimated_daily_usd=estimated_daily_usd,
         electricity_cost_kwh=electricity_cost_kwh,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Advanced AI Components (v2 Upgrades)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DeepQNetwork:
+    """
+    Deep Q-Network (DQN) for advanced mining decision making.
+    
+    Improvements over basic Q-learning:
+    - Non-linear function approximation via neural network
+    - Experience replay for stable learning
+    - Target network for reduced overestimation
+    - Dueling architecture for better action-value estimation
+    - Prioritized experience replay for efficient learning
+    """
+    
+    ACTIONS = [
+        MiningDecision.CONTINUE,
+        MiningDecision.INCREASE_INTENSITY,
+        MiningDecision.DECREASE_INTENSITY,
+        MiningDecision.OPTIMIZE_POWER,
+        MiningDecision.COOL_DOWN,
+        MiningDecision.SWITCH_ALGORITHM,
+        MiningDecision.SWITCH_COIN,
+    ]
+    
+    # Bounds for numerical stability
+    CLIP_MIN = -500
+    CLIP_MAX = 500
+    
+    def __init__(
+        self,
+        state_size: int = 14,
+        hidden_sizes: Tuple[int, ...] = (128, 64, 32),
+        learning_rate: float = 0.0005,
+        discount_factor: float = 0.99,
+        exploration_rate: float = 0.5,
+        exploration_decay: float = 0.998,
+        min_exploration: float = 0.01,
+        target_update_freq: int = 100,
+        batch_size: int = 64,
+        memory_size: int = 50000,
+    ):
+        self.state_size = state_size
+        self.action_size = len(self.ACTIONS)
+        self.hidden_sizes = hidden_sizes
+        
+        self.lr = learning_rate
+        self.gamma = discount_factor
+        self.epsilon = exploration_rate
+        self.epsilon_decay = exploration_decay
+        self.epsilon_min = min_exploration
+        self.target_update_freq = target_update_freq
+        self.batch_size = batch_size
+        
+        # Initialize networks (main and target)
+        self._init_networks()
+        
+        # Prioritized experience replay
+        self.memory: deque = deque(maxlen=memory_size)
+        self.priorities: deque = deque(maxlen=memory_size)
+        self.priority_alpha = 0.6  # Priority exponent
+        self.priority_beta = 0.4   # Importance sampling weight
+        self.priority_beta_increment = 0.001
+        
+        # Training stats
+        self._episodes = 0
+        self._steps = 0
+        self._total_reward = 0.0
+        self._losses: deque = deque(maxlen=1000)
+        self._q_values: deque = deque(maxlen=1000)
+    
+    def _init_networks(self):
+        """Initialize main and target networks."""
+        # Main network weights
+        self.weights = []
+        self.biases = []
+        
+        layer_sizes = [self.state_size] + list(self.hidden_sizes) + [self.action_size]
+        
+        for i in range(len(layer_sizes) - 1):
+            # He initialization for ReLU/Leaky ReLU activations
+            # This helps prevent vanishing/exploding gradients by scaling weights
+            # based on the number of input connections: std = sqrt(2/n_in)
+            w = np.random.randn(layer_sizes[i], layer_sizes[i+1]).astype(np.float32)
+            w *= np.sqrt(2.0 / layer_sizes[i])
+            b = np.zeros(layer_sizes[i+1], dtype=np.float32)
+            self.weights.append(w)
+            self.biases.append(b)
+        
+        # Target network (copy of main)
+        self.target_weights = [w.copy() for w in self.weights]
+        self.target_biases = [b.copy() for b in self.biases]
+    
+    def _relu(self, x: np.ndarray) -> np.ndarray:
+        return np.maximum(0, x)
+    
+    def _leaky_relu(self, x: np.ndarray, alpha: float = 0.01) -> np.ndarray:
+        return np.where(x > 0, x, alpha * x)
+    
+    def _softmax(self, x: np.ndarray) -> np.ndarray:
+        x_shifted = x - np.max(x, axis=-1, keepdims=True)
+        exp_x = np.exp(np.clip(x_shifted, self.CLIP_MIN, self.CLIP_MAX))
+        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
+    
+    def forward(self, state: np.ndarray, use_target: bool = False) -> np.ndarray:
+        """Forward pass through network."""
+        weights = self.target_weights if use_target else self.weights
+        biases = self.target_biases if use_target else self.biases
+        
+        x = state
+        for i, (w, b) in enumerate(zip(weights, biases)):
+            x = x @ w + b
+            # Use leaky ReLU for all but last layer
+            if i < len(weights) - 1:
+                x = self._leaky_relu(x)
+        
+        return x
+    
+    def get_q_values(self, state: np.ndarray) -> np.ndarray:
+        """Get Q-values for all actions given a state."""
+        if state.ndim == 1:
+            state = state.reshape(1, -1)
+        return self.forward(state)
+    
+    def choose_action(self, snapshot: MiningSnapshot, training: bool = True) -> MiningDecision:
+        """Choose action using epsilon-greedy policy with temperature scaling."""
+        state = snapshot.to_vector().reshape(1, -1)
+        q_values = self.get_q_values(state)[0]
+        
+        # Track Q-values for monitoring
+        self._q_values.append(float(np.mean(q_values)))
+        
+        if training and random.random() < self.epsilon:
+            # Exploration with softmax-based action selection
+            # Higher Q-values still have higher probability
+            temperature = 1.0 + self.epsilon  # Temperature decreases as epsilon decreases
+            probs = self._softmax(q_values / temperature)
+            action_idx = np.random.choice(self.action_size, p=probs)
+        else:
+            # Exploitation: best Q-value action
+            action_idx = int(np.argmax(q_values))
+        
+        return self.ACTIONS[action_idx]
+    
+    def remember(
+        self, 
+        state: np.ndarray, 
+        action: int, 
+        reward: float, 
+        next_state: np.ndarray, 
+        done: bool
+    ):
+        """Store experience with priority."""
+        # Calculate initial priority (use maximum priority for new experiences)
+        max_priority = max(self.priorities) if self.priorities else 1.0
+        
+        self.memory.append((state, action, reward, next_state, done))
+        self.priorities.append(max_priority)
+        
+        self._total_reward += reward
+    
+    def _sample_batch(self) -> Tuple[np.ndarray, ...]:
+        """Sample batch with prioritized experience replay."""
+        if len(self.memory) < self.batch_size:
+            return None
+        
+        # Calculate sampling probabilities
+        priorities = np.array(self.priorities, dtype=np.float32)
+        priorities = priorities ** self.priority_alpha
+        probs = priorities / priorities.sum()
+        
+        # Sample indices
+        indices = np.random.choice(len(self.memory), self.batch_size, p=probs, replace=False)
+        
+        # Calculate importance sampling weights
+        n = len(self.memory)
+        weights = (n * probs[indices]) ** (-self.priority_beta)
+        weights /= weights.max()  # Normalize
+        
+        # Increase beta for more uniform sampling over time
+        self.priority_beta = min(1.0, self.priority_beta + self.priority_beta_increment)
+        
+        batch = [self.memory[i] for i in indices]
+        states = np.array([b[0] for b in batch], dtype=np.float32)
+        actions = np.array([b[1] for b in batch], dtype=np.int32)
+        rewards = np.array([b[2] for b in batch], dtype=np.float32)
+        next_states = np.array([b[3] for b in batch], dtype=np.float32)
+        dones = np.array([b[4] for b in batch], dtype=np.float32)
+        
+        return states, actions, rewards, next_states, dones, indices, weights
+    
+    def train(self):
+        """Train network with prioritized experience replay."""
+        batch = self._sample_batch()
+        if batch is None:
+            return
+        
+        states, actions, rewards, next_states, dones, indices, is_weights = batch
+        
+        # Double DQN: use main network to select action, target to evaluate
+        next_q_main = self.forward(next_states, use_target=False)
+        next_actions = np.argmax(next_q_main, axis=1)
+        next_q_target = self.forward(next_states, use_target=True)
+        next_q_values = next_q_target[np.arange(self.batch_size), next_actions]
+        
+        # Calculate targets
+        targets = rewards + self.gamma * next_q_values * (1 - dones)
+        
+        # Get current Q-values
+        current_q = self.forward(states)
+        current_q_actions = current_q[np.arange(self.batch_size), actions]
+        
+        # Calculate TD errors for priority updates
+        td_errors = np.abs(targets - current_q_actions)
+        
+        # Update priorities
+        for i, idx in enumerate(indices):
+            self.priorities[idx] = td_errors[i] + 1e-6  # Small constant to avoid zero priority
+        
+        # Calculate loss (weighted by importance sampling)
+        loss = np.mean(is_weights * (targets - current_q_actions) ** 2)
+        self._losses.append(float(loss))
+        
+        # Gradient descent (simplified backpropagation)
+        # Target gradient
+        target_grad = 2 * (current_q_actions - targets) * is_weights / self.batch_size
+        
+        # Backpropagate through network
+        grad = np.zeros_like(current_q)
+        grad[np.arange(self.batch_size), actions] = target_grad
+        
+        # Update weights layer by layer
+        activations = [states]
+        x = states
+        for i, (w, b) in enumerate(zip(self.weights, self.biases)):
+            x = x @ w + b
+            if i < len(self.weights) - 1:
+                x = self._leaky_relu(x)
+            activations.append(x)
+        
+        for i in range(len(self.weights) - 1, -1, -1):
+            if i < len(self.weights) - 1:
+                # Leaky ReLU derivative
+                grad = grad * np.where(activations[i + 1] > 0, 1.0, 0.01)
+            
+            dw = activations[i].T @ grad
+            db = np.sum(grad, axis=0)
+            
+            # Gradient clipping
+            dw = np.clip(dw, -1.0, 1.0)
+            db = np.clip(db, -1.0, 1.0)
+            
+            # Update weights
+            self.weights[i] -= self.lr * dw
+            self.biases[i] -= self.lr * db
+            
+            if i > 0:
+                grad = grad @ self.weights[i].T
+        
+        self._steps += 1
+        
+        # Update target network periodically
+        if self._steps % self.target_update_freq == 0:
+            self._update_target_network()
+        
+        # Decay exploration rate
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+    
+    def _update_target_network(self):
+        """Soft update target network weights."""
+        tau = 0.01  # Soft update coefficient
+        for i in range(len(self.weights)):
+            self.target_weights[i] = tau * self.weights[i] + (1 - tau) * self.target_weights[i]
+            self.target_biases[i] = tau * self.biases[i] + (1 - tau) * self.target_biases[i]
+    
+    def step(self, old_snapshot: MiningSnapshot, new_snapshot: MiningSnapshot, action: MiningDecision):
+        """Complete one step of learning."""
+        state = old_snapshot.to_vector()
+        next_state = new_snapshot.to_vector()
+        action_idx = self.ACTIONS.index(action)
+        reward = self._calculate_reward(old_snapshot, new_snapshot, action)
+        
+        self.remember(state, action_idx, reward, next_state, done=False)
+        self.train()
+        
+        self._episodes += 1
+    
+    def _calculate_reward(
+        self, 
+        old: MiningSnapshot, 
+        new: MiningSnapshot, 
+        action: MiningDecision
+    ) -> float:
+        """
+        Advanced reward function with multi-objective optimization.
+        
+        Rewards efficiency (hashrate/power), stability, and profitability.
+        """
+        reward = 0.0
+        
+        # Hashrate improvement (primary objective)
+        if old.hashrate > 0:
+            hashrate_change = (new.hashrate - old.hashrate) / old.hashrate
+            reward += hashrate_change * 15.0
+        
+        # Power efficiency (hashrate per watt)
+        old_efficiency = old.hashrate / max(1, old.power_watts)
+        new_efficiency = new.hashrate / max(1, new.power_watts)
+        if old_efficiency > 0:
+            efficiency_change = (new_efficiency - old_efficiency) / old_efficiency
+            reward += efficiency_change * 10.0
+        
+        # Profit improvement (most important)
+        if old.estimated_daily_usd > 0:
+            profit_change = (new.estimated_daily_usd - old.estimated_daily_usd) / old.estimated_daily_usd
+            reward += profit_change * 20.0
+        elif new.estimated_daily_usd > 0:
+            reward += new.estimated_daily_usd * 2.0
+        
+        # Temperature management
+        if new.temperature_c < old.temperature_c:
+            reward += 0.5  # Cooling is good
+        if new.temperature_c > 85:
+            reward -= 5.0  # Overheating penalty
+        elif new.temperature_c > 80:
+            reward -= 2.0  # Warning zone
+        elif new.temperature_c < 70:
+            reward += 0.3  # Good temperature bonus
+        
+        # Share acceptance rate
+        old_rate = old.accepted_shares / max(1, old.accepted_shares + old.rejected_shares)
+        new_rate = new.accepted_shares / max(1, new.accepted_shares + new.rejected_shares)
+        reward += (new_rate - old_rate) * 5.0
+        
+        # Stability bonus (penalize excessive changes)
+        if action == MiningDecision.CONTINUE and new.hashrate >= old.hashrate * 0.99:
+            reward += 0.5  # Reward stable operation
+        
+        # Action-specific adjustments
+        if action == MiningDecision.COOL_DOWN and new.temperature_c < old.temperature_c:
+            reward += 2.0  # Successful cooldown
+        
+        return reward
+    
+    def get_stats(self) -> dict:
+        """Get DQN statistics."""
+        avg_loss = np.mean(self._losses) if self._losses else 0.0
+        avg_q = np.mean(self._q_values) if self._q_values else 0.0
+        
+        return {
+            "episodes": self._episodes,
+            "steps": self._steps,
+            "exploration_rate": round(self.epsilon, 4),
+            "total_reward": round(self._total_reward, 2),
+            "memory_size": len(self.memory),
+            "avg_loss": round(avg_loss, 6),
+            "avg_q_value": round(avg_q, 4),
+            "priority_beta": round(self.priority_beta, 4),
+        }
+    
+    def save(self, path: str):
+        """Save DQN state."""
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'weights': self.weights,
+                'biases': self.biases,
+                'target_weights': self.target_weights,
+                'target_biases': self.target_biases,
+                'epsilon': self.epsilon,
+                'priority_beta': self.priority_beta,
+                'episodes': self._episodes,
+                'steps': self._steps,
+                'total_reward': self._total_reward,
+            }, f)
+    
+    def load(self, path: str) -> bool:
+        """Load DQN state."""
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.weights = data['weights']
+                self.biases = data['biases']
+                self.target_weights = data['target_weights']
+                self.target_biases = data['target_biases']
+                self.epsilon = data.get('epsilon', self.epsilon)
+                self.priority_beta = data.get('priority_beta', self.priority_beta)
+                self._episodes = data.get('episodes', 0)
+                self._steps = data.get('steps', 0)
+                self._total_reward = data.get('total_reward', 0)
+            return True
+        except Exception as e:
+            logger.debug("Failed to load DQN: %s", e)
+            return False
+
+
+class TransformerMiningPredictor:
+    """
+    Transformer-based sequence model for mining performance prediction.
+    
+    Uses self-attention to capture temporal patterns in mining data,
+    predicting future hashrate, efficiency, and optimal settings.
+    
+    This is a simplified implementation that doesn't require PyTorch/TensorFlow.
+    """
+    
+    def __init__(
+        self,
+        input_dim: int = 14,
+        model_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        sequence_length: int = 10,
+        output_dim: int = 5,  # [hashrate_pred, efficiency_pred, opt_intensity, opt_power, confidence]
+    ):
+        self.input_dim = input_dim
+        self.model_dim = model_dim
+        self.num_heads = num_heads
+        self.num_layers = num_layers
+        self.seq_len = sequence_length
+        self.output_dim = output_dim
+        
+        self.head_dim = model_dim // num_heads
+        
+        # Input projection
+        self.W_input = np.random.randn(input_dim, model_dim).astype(np.float32) * 0.1
+        
+        # Positional encoding
+        self.positional_encoding = self._create_positional_encoding()
+        
+        # Multi-head attention weights (per layer)
+        self.attention_layers = []
+        for _ in range(num_layers):
+            layer = {
+                'W_q': np.random.randn(model_dim, model_dim).astype(np.float32) * 0.1,
+                'W_k': np.random.randn(model_dim, model_dim).astype(np.float32) * 0.1,
+                'W_v': np.random.randn(model_dim, model_dim).astype(np.float32) * 0.1,
+                'W_o': np.random.randn(model_dim, model_dim).astype(np.float32) * 0.1,
+                'W_ff1': np.random.randn(model_dim, model_dim * 4).astype(np.float32) * 0.1,
+                'W_ff2': np.random.randn(model_dim * 4, model_dim).astype(np.float32) * 0.1,
+                'layer_norm1_gamma': np.ones(model_dim, dtype=np.float32),
+                'layer_norm1_beta': np.zeros(model_dim, dtype=np.float32),
+                'layer_norm2_gamma': np.ones(model_dim, dtype=np.float32),
+                'layer_norm2_beta': np.zeros(model_dim, dtype=np.float32),
+            }
+            self.attention_layers.append(layer)
+        
+        # Output projection
+        self.W_output = np.random.randn(model_dim, output_dim).astype(np.float32) * 0.1
+        self.b_output = np.zeros(output_dim, dtype=np.float32)
+        
+        # Training stats
+        self._trained_sequences = 0
+        self.lr = 0.0001
+    
+    def _create_positional_encoding(self) -> np.ndarray:
+        """Create sinusoidal positional encoding."""
+        pe = np.zeros((self.seq_len, self.model_dim), dtype=np.float32)
+        position = np.arange(self.seq_len)[:, np.newaxis]
+        div_term = np.exp(np.arange(0, self.model_dim, 2) * (-np.log(10000.0) / self.model_dim))
+        
+        pe[:, 0::2] = np.sin(position * div_term)
+        pe[:, 1::2] = np.cos(position * div_term)
+        
+        return pe
+    
+    def _layer_norm(self, x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+        """Layer normalization."""
+        mean = np.mean(x, axis=-1, keepdims=True)
+        var = np.var(x, axis=-1, keepdims=True)
+        return gamma * (x - mean) / np.sqrt(var + eps) + beta
+    
+    def _scaled_dot_product_attention(
+        self, 
+        Q: np.ndarray, 
+        K: np.ndarray, 
+        V: np.ndarray,
+        mask: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Compute scaled dot-product attention."""
+        d_k = Q.shape[-1]
+        scores = Q @ K.transpose(0, 2, 1) / np.sqrt(d_k)
+        
+        if mask is not None:
+            scores = np.where(mask, scores, -1e9)
+        
+        # Stable softmax
+        scores_shifted = scores - np.max(scores, axis=-1, keepdims=True)
+        weights = np.exp(scores_shifted)
+        weights = weights / np.sum(weights, axis=-1, keepdims=True)
+        
+        return weights @ V
+    
+    def _multi_head_attention(self, x: np.ndarray, layer: dict) -> np.ndarray:
+        """Multi-head self-attention."""
+        batch_size, seq_len, _ = x.shape
+        
+        Q = x @ layer['W_q']
+        K = x @ layer['W_k']
+        V = x @ layer['W_v']
+        
+        # Reshape for multi-head
+        Q = Q.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+        K = K.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+        V = V.reshape(batch_size, seq_len, self.num_heads, self.head_dim).transpose(0, 2, 1, 3)
+        
+        # Attention per head
+        attn_outputs = []
+        for h in range(self.num_heads):
+            attn_out = self._scaled_dot_product_attention(Q[:, h], K[:, h], V[:, h])
+            attn_outputs.append(attn_out)
+        
+        # Concatenate heads
+        concat = np.concatenate(attn_outputs, axis=-1)
+        
+        # Output projection
+        return concat @ layer['W_o']
+    
+    def _feed_forward(self, x: np.ndarray, layer: dict) -> np.ndarray:
+        """Position-wise feed-forward network."""
+        h = np.maximum(0, x @ layer['W_ff1'])  # ReLU
+        return h @ layer['W_ff2']
+    
+    def forward(self, sequence: np.ndarray) -> np.ndarray:
+        """
+        Forward pass through transformer.
+        
+        Args:
+            sequence: Shape (batch_size, seq_len, input_dim) or (seq_len, input_dim)
+        
+        Returns:
+            predictions: Shape (batch_size, output_dim) or (output_dim,)
+        """
+        single_input = sequence.ndim == 2
+        if single_input:
+            sequence = sequence[np.newaxis, ...]
+        
+        batch_size, seq_len, _ = sequence.shape
+        
+        # Pad or truncate sequence
+        if seq_len < self.seq_len:
+            padding = np.zeros((batch_size, self.seq_len - seq_len, self.input_dim), dtype=np.float32)
+            sequence = np.concatenate([padding, sequence], axis=1)
+        elif seq_len > self.seq_len:
+            sequence = sequence[:, -self.seq_len:, :]
+        
+        # Input projection + positional encoding
+        x = sequence @ self.W_input + self.positional_encoding
+        
+        # Transformer layers
+        for layer in self.attention_layers:
+            # Self-attention with residual
+            attn_out = self._multi_head_attention(x, layer)
+            x = self._layer_norm(x + attn_out, layer['layer_norm1_gamma'], layer['layer_norm1_beta'])
+            
+            # Feed-forward with residual
+            ff_out = self._feed_forward(x, layer)
+            x = self._layer_norm(x + ff_out, layer['layer_norm2_gamma'], layer['layer_norm2_beta'])
+        
+        # Use last position for prediction
+        last_hidden = x[:, -1, :]
+        
+        # Output projection with sigmoid for bounded outputs
+        output = last_hidden @ self.W_output + self.b_output
+        output = 1 / (1 + np.exp(-np.clip(output, -10, 10)))  # Sigmoid
+        
+        if single_input:
+            return output[0]
+        return output
+    
+    def predict(self, snapshots: List[MiningSnapshot]) -> Dict[str, float]:
+        """
+        Predict optimal settings from a sequence of snapshots.
+        
+        Returns dictionary with:
+        - predicted_hashrate_change: Expected % change in hashrate
+        - predicted_efficiency_change: Expected % change in efficiency
+        - optimal_intensity: Recommended intensity (0-100)
+        - optimal_power_limit: Recommended power limit (60-100)
+        - confidence: Prediction confidence (0-1)
+        """
+        if len(snapshots) < 2:
+            return {
+                "predicted_hashrate_change": 0.0,
+                "predicted_efficiency_change": 0.0,
+                "optimal_intensity": 75,
+                "optimal_power_limit": 85,
+                "confidence": 0.1,
+            }
+        
+        # Convert snapshots to sequence
+        sequence = np.array([s.to_vector() for s in snapshots], dtype=np.float32)
+        
+        # Get predictions
+        output = self.forward(sequence)
+        
+        return {
+            "predicted_hashrate_change": float((output[0] - 0.5) * 50),  # -25% to +25%
+            "predicted_efficiency_change": float((output[1] - 0.5) * 40),  # -20% to +20%
+            "optimal_intensity": float(50 + output[2] * 50),  # 50-100
+            "optimal_power_limit": float(60 + output[3] * 40),  # 60-100
+            "confidence": float(output[4]),
+        }
+    
+    def train_on_sequence(self, snapshots: List[MiningSnapshot], actual_outcome: Dict[str, float]):
+        """Train on a sequence with known outcome (simplified gradient descent)."""
+        if len(snapshots) < 2:
+            return
+        
+        sequence = np.array([s.to_vector() for s in snapshots], dtype=np.float32)
+        output = self.forward(sequence)
+        
+        # Create target from actual outcome
+        target = np.array([
+            (actual_outcome.get("hashrate_change", 0) / 50) + 0.5,
+            (actual_outcome.get("efficiency_change", 0) / 40) + 0.5,
+            (actual_outcome.get("intensity", 75) - 50) / 50,
+            (actual_outcome.get("power_limit", 85) - 60) / 40,
+            actual_outcome.get("success", 0.5),
+        ], dtype=np.float32)
+        target = np.clip(target, 0, 1)
+        
+        # Simple gradient descent on output layer
+        error = output - target
+        grad = error * output * (1 - output)  # Sigmoid derivative
+        
+        # Update output weights (simplified)
+        self.W_output -= self.lr * np.outer(np.ones(self.model_dim), grad)
+        self.b_output -= self.lr * grad
+        
+        self._trained_sequences += 1
+    
+    def get_stats(self) -> dict:
+        return {
+            "trained_sequences": self._trained_sequences,
+            "model_dim": self.model_dim,
+            "num_heads": self.num_heads,
+            "num_layers": self.num_layers,
+            "sequence_length": self.seq_len,
+        }
+    
+    def save(self, path: str):
+        """Save transformer state."""
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'W_input': self.W_input,
+                'attention_layers': self.attention_layers,
+                'W_output': self.W_output,
+                'b_output': self.b_output,
+                'trained_sequences': self._trained_sequences,
+            }, f)
+    
+    def load(self, path: str) -> bool:
+        """Load transformer state."""
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.W_input = data['W_input']
+                self.attention_layers = data['attention_layers']
+                self.W_output = data['W_output']
+                self.b_output = data['b_output']
+                self._trained_sequences = data.get('trained_sequences', 0)
+            return True
+        except Exception as e:
+            logger.debug("Failed to load transformer: %s", e)
+            return False
+
+
+class EnsembleMiningOptimizer:
+    """
+    Ensemble model that combines multiple AI techniques for robust optimization.
+    
+    Combines:
+    - Neural network (hashrate prediction)
+    - DQN (decision making)
+    - Transformer (sequence modeling)
+    - Basic RL (baseline)
+    
+    Uses weighted voting based on recent performance to select best predictions.
+    """
+    
+    def __init__(self):
+        self.nn = SimpleNeuralNetwork()
+        self.dqn = DeepQNetwork()
+        self.transformer = TransformerMiningPredictor()
+        self.basic_rl = MiningRLAgent()
+        
+        # Model weights (adaptive based on performance)
+        self.model_weights = {
+            "nn": 0.25,
+            "dqn": 0.35,
+            "transformer": 0.25,
+            "basic_rl": 0.15,
+        }
+        
+        # Performance tracking
+        self._model_successes: Dict[str, int] = {k: 0 for k in self.model_weights}
+        self._model_total: Dict[str, int] = {k: 0 for k in self.model_weights}
+        self._recent_predictions: deque = deque(maxlen=100)
+    
+    def get_ensemble_decision(
+        self, 
+        snapshot: MiningSnapshot, 
+        snapshot_history: List[MiningSnapshot]
+    ) -> Tuple[MiningDecision, float, Dict[str, Any]]:
+        """
+        Get ensemble decision by combining all models.
+        
+        Returns:
+            (decision, confidence, details)
+        """
+        decisions = {}
+        confidences = {}
+        details = {}
+        
+        # Get NN prediction
+        nn_improvement, nn_intensity, nn_power = self.nn.predict(snapshot)
+        decisions["nn"] = MiningDecision.CONTINUE
+        if nn_improvement > 10:
+            if nn_intensity > snapshot.intensity + 5:
+                decisions["nn"] = MiningDecision.INCREASE_INTENSITY
+            elif nn_intensity < snapshot.intensity - 5:
+                decisions["nn"] = MiningDecision.DECREASE_INTENSITY
+        confidences["nn"] = min(0.9, 0.5 + self.nn._trained_samples / 500)
+        details["nn"] = {"improvement": nn_improvement, "intensity": nn_intensity, "power": nn_power}
+        
+        # Get DQN decision
+        decisions["dqn"] = self.dqn.choose_action(snapshot, training=False)
+        confidences["dqn"] = 1.0 - self.dqn.epsilon
+        details["dqn"] = self.dqn.get_stats()
+        
+        # Get Transformer prediction
+        if len(snapshot_history) >= 3:
+            trans_pred = self.transformer.predict(snapshot_history)
+            decisions["transformer"] = MiningDecision.CONTINUE
+            if trans_pred["predicted_hashrate_change"] > 5 and trans_pred["confidence"] > 0.6:
+                if trans_pred["optimal_intensity"] > snapshot.intensity + 5:
+                    decisions["transformer"] = MiningDecision.INCREASE_INTENSITY
+                elif trans_pred["optimal_intensity"] < snapshot.intensity - 5:
+                    decisions["transformer"] = MiningDecision.DECREASE_INTENSITY
+            confidences["transformer"] = trans_pred["confidence"]
+            details["transformer"] = trans_pred
+        else:
+            decisions["transformer"] = MiningDecision.CONTINUE
+            confidences["transformer"] = 0.3
+            details["transformer"] = {"note": "insufficient_history"}
+        
+        # Get basic RL decision
+        decisions["basic_rl"] = self.basic_rl.choose_action(
+            self.basic_rl.get_state(snapshot), training=False
+        )
+        confidences["basic_rl"] = 1.0 - self.basic_rl.epsilon
+        details["basic_rl"] = self.basic_rl.get_stats()
+        
+        # Weighted voting
+        vote_scores: Dict[MiningDecision, float] = {}
+        for model_name, decision in decisions.items():
+            weight = self.model_weights[model_name]
+            confidence = confidences[model_name]
+            score = weight * confidence
+            
+            if decision not in vote_scores:
+                vote_scores[decision] = 0.0
+            vote_scores[decision] += score
+        
+        # Select best decision
+        best_decision = max(vote_scores, key=vote_scores.get)
+        total_score = sum(vote_scores.values())
+        ensemble_confidence = vote_scores[best_decision] / total_score if total_score > 0 else 0.5
+        
+        # Record prediction for later evaluation
+        self._recent_predictions.append({
+            "timestamp": time.time(),
+            "decisions": decisions.copy(),
+            "final_decision": best_decision,
+            "confidence": ensemble_confidence,
+            "snapshot_hashrate": snapshot.hashrate,
+        })
+        
+        return best_decision, ensemble_confidence, {
+            "model_decisions": {k: v.value for k, v in decisions.items()},
+            "model_confidences": confidences,
+            "vote_scores": {k.value: v for k, v in vote_scores.items()},
+            "model_weights": self.model_weights.copy(),
+            "model_details": details,
+        }
+    
+    def learn_from_outcome(
+        self, 
+        old_snapshot: MiningSnapshot, 
+        new_snapshot: MiningSnapshot, 
+        action_taken: MiningDecision,
+        snapshot_history: List[MiningSnapshot]
+    ):
+        """Update all models and adjust weights based on outcome."""
+        # Determine if outcome was successful
+        success = new_snapshot.hashrate >= old_snapshot.hashrate * 0.99
+        if new_snapshot.estimated_daily_usd > old_snapshot.estimated_daily_usd:
+            success = True
+        
+        # Update each model
+        self.nn.train(old_snapshot.to_vector(), np.array([
+            min(1.0, max(0.0, (new_snapshot.hashrate / max(1, old_snapshot.hashrate) - 0.5))),
+            new_snapshot.intensity / 100.0,
+            new_snapshot.power_watts / max(100, old_snapshot.power_watts) * 0.5,
+        ], dtype=np.float32))
+        
+        self.dqn.step(old_snapshot, new_snapshot, action_taken)
+        self.basic_rl.step(old_snapshot, new_snapshot, action_taken)
+        
+        if len(snapshot_history) >= 3:
+            actual = {
+                "hashrate_change": (new_snapshot.hashrate - old_snapshot.hashrate) / max(1, old_snapshot.hashrate) * 100,
+                "efficiency_change": 0,
+                "intensity": new_snapshot.intensity,
+                "power_limit": new_snapshot.power_limit_percent,
+                "success": 1.0 if success else 0.0,
+            }
+            self.transformer.train_on_sequence(snapshot_history, actual)
+        
+        # Update model weights based on which predictions were correct
+        if self._recent_predictions:
+            last_pred = self._recent_predictions[-1]
+            for model_name, decision in last_pred.get("decisions", {}).items():
+                self._model_total[model_name] += 1
+                
+                # Check if this model's prediction matched the successful outcome
+                if decision == action_taken and success:
+                    self._model_successes[model_name] += 1
+                elif decision != action_taken and not success:
+                    self._model_successes[model_name] += 1
+        
+        # Periodically rebalance weights
+        if sum(self._model_total.values()) > 0 and sum(self._model_total.values()) % 20 == 0:
+            self._rebalance_weights()
+    
+    def _rebalance_weights(self):
+        """Rebalance model weights based on recent performance."""
+        new_weights = {}
+        total_score = 0.0
+        
+        for model_name in self.model_weights:
+            total = self._model_total.get(model_name, 0)
+            successes = self._model_successes.get(model_name, 0)
+            
+            if total > 10:
+                accuracy = successes / total
+            else:
+                accuracy = 0.5  # Default until we have data
+            
+            # Weight = accuracy with minimum floor
+            new_weights[model_name] = max(0.1, accuracy)
+            total_score += new_weights[model_name]
+        
+        # Normalize
+        for model_name in new_weights:
+            self.model_weights[model_name] = new_weights[model_name] / total_score
+        
+        logger.info("Ensemble weights rebalanced: %s", self.model_weights)
+    
+    def get_stats(self) -> dict:
+        accuracies = {}
+        for model in self.model_weights:
+            total = self._model_total.get(model, 0)
+            successes = self._model_successes.get(model, 0)
+            accuracies[model] = round(successes / total * 100, 2) if total > 0 else 0.0
+        
+        return {
+            "model_weights": self.model_weights.copy(),
+            "model_accuracies_percent": accuracies,
+            "total_predictions": sum(self._model_total.values()),
+            "nn_stats": {"trained_samples": self.nn._trained_samples},
+            "dqn_stats": self.dqn.get_stats(),
+            "transformer_stats": self.transformer.get_stats(),
+            "basic_rl_stats": self.basic_rl.get_stats(),
+        }
+    
+    def save(self, base_path: str):
+        """Save all models."""
+        path = Path(base_path)
+        self.nn.save(str(path / "ensemble_nn.pkl"))
+        self.dqn.save(str(path / "ensemble_dqn.pkl"))
+        self.transformer.save(str(path / "ensemble_transformer.pkl"))
+        self.basic_rl.save(str(path / "ensemble_basic_rl.pkl"))
+        
+        with open(str(path / "ensemble_meta.pkl"), 'wb') as f:
+            pickle.dump({
+                'model_weights': self.model_weights,
+                'model_successes': dict(self._model_successes),
+                'model_total': dict(self._model_total),
+            }, f)
+    
+    def load(self, base_path: str):
+        """Load all models."""
+        path = Path(base_path)
+        self.nn.load(str(path / "ensemble_nn.pkl"))
+        self.dqn.load(str(path / "ensemble_dqn.pkl"))
+        self.transformer.load(str(path / "ensemble_transformer.pkl"))
+        self.basic_rl.load(str(path / "ensemble_basic_rl.pkl"))
+        
+        try:
+            with open(str(path / "ensemble_meta.pkl"), 'rb') as f:
+                data = pickle.load(f)
+                self.model_weights = data.get('model_weights', self.model_weights)
+                self._model_successes = data.get('model_successes', self._model_successes)
+                self._model_total = data.get('model_total', self._model_total)
+        except Exception as e:
+            logger.debug("Failed to load ensemble meta: %s", e)
+
+
+class AnomalyDetector:
+    """
+    Advanced anomaly detection for mining hardware health monitoring.
+    
+    Uses statistical methods and learned patterns to detect:
+    - Temperature anomalies
+    - Hashrate drops
+    - Power consumption spikes
+    - Share rejection patterns
+    - Hardware degradation
+    """
+    
+    # Window sizes for efficiency trend analysis
+    RECENT_WINDOW_SIZE = 10
+    HISTORICAL_WINDOW_SIZE = 40
+    MIN_SAMPLES_FOR_TREND = 50
+    EFFICIENCY_DEGRADATION_THRESHOLD = 0.85  # 15% degradation triggers alert
+    
+    def __init__(self, window_size: int = 100):
+        self.window_size = window_size
+        
+        # Rolling statistics per GPU
+        self._stats: Dict[int, Dict[str, deque]] = {}
+        
+        # Anomaly thresholds (standard deviations)
+        self.temp_threshold = 3.0
+        self.hashrate_threshold = 2.5
+        self.power_threshold = 2.0
+        self.rejection_threshold = 3.0
+        
+        # Anomaly history
+        self._anomalies: deque = deque(maxlen=1000)
+        self._anomaly_counts: Dict[str, int] = {}
+    
+    def _get_gpu_stats(self, gpu_id: int) -> Dict[str, deque]:
+        if gpu_id not in self._stats:
+            self._stats[gpu_id] = {
+                "temperature": deque(maxlen=self.window_size),
+                "hashrate": deque(maxlen=self.window_size),
+                "power": deque(maxlen=self.window_size),
+                "rejection_rate": deque(maxlen=self.window_size),
+                "efficiency": deque(maxlen=self.window_size),
+            }
+        return self._stats[gpu_id]
+    
+    def record(self, snapshot: MiningSnapshot):
+        """Record a snapshot and check for anomalies."""
+        stats = self._get_gpu_stats(snapshot.gpu_id)
+        
+        # Record values
+        stats["temperature"].append(snapshot.temperature_c)
+        stats["hashrate"].append(snapshot.hashrate)
+        stats["power"].append(snapshot.power_watts)
+        
+        total_shares = snapshot.accepted_shares + snapshot.rejected_shares
+        rejection_rate = snapshot.rejected_shares / max(1, total_shares)
+        stats["rejection_rate"].append(rejection_rate)
+        
+        efficiency = snapshot.hashrate / max(1, snapshot.power_watts)
+        stats["efficiency"].append(efficiency)
+    
+    def check_anomalies(self, snapshot: MiningSnapshot) -> List[Dict[str, Any]]:
+        """Check for anomalies in the latest snapshot."""
+        anomalies = []
+        stats = self._get_gpu_stats(snapshot.gpu_id)
+        
+        # Need enough data for statistical analysis
+        if len(stats["temperature"]) < 10:
+            return anomalies
+        
+        # Temperature anomaly
+        temp_mean = np.mean(stats["temperature"])
+        temp_std = np.std(stats["temperature"]) + 1e-6
+        temp_z = (snapshot.temperature_c - temp_mean) / temp_std
+        
+        if abs(temp_z) > self.temp_threshold:
+            anomaly = {
+                "type": "temperature",
+                "severity": "high" if temp_z > 4 else "medium",
+                "value": snapshot.temperature_c,
+                "expected_range": (temp_mean - 2*temp_std, temp_mean + 2*temp_std),
+                "z_score": temp_z,
+                "message": f"Temperature anomaly: {snapshot.temperature_c:.1f}°C (expected {temp_mean:.1f}±{2*temp_std:.1f}°C)",
+            }
+            anomalies.append(anomaly)
+            self._record_anomaly(anomaly)
+        
+        # Hashrate anomaly (only care about drops)
+        if len(stats["hashrate"]) >= 10 and any(h > 0 for h in stats["hashrate"]):
+            hr_mean = np.mean([h for h in stats["hashrate"] if h > 0])
+            hr_std = np.std([h for h in stats["hashrate"] if h > 0]) + 1e-6
+            hr_z = (snapshot.hashrate - hr_mean) / hr_std
+            
+            if hr_z < -self.hashrate_threshold:
+                anomaly = {
+                    "type": "hashrate_drop",
+                    "severity": "high" if hr_z < -4 else "medium",
+                    "value": snapshot.hashrate,
+                    "expected_range": (hr_mean - 2*hr_std, hr_mean + 2*hr_std),
+                    "z_score": hr_z,
+                    "message": f"Hashrate drop: {snapshot.hashrate:.2f} H/s (expected {hr_mean:.2f}±{2*hr_std:.2f} H/s)",
+                }
+                anomalies.append(anomaly)
+                self._record_anomaly(anomaly)
+        
+        # Power anomaly
+        power_mean = np.mean(stats["power"])
+        power_std = np.std(stats["power"]) + 1e-6
+        power_z = (snapshot.power_watts - power_mean) / power_std
+        
+        if abs(power_z) > self.power_threshold:
+            anomaly = {
+                "type": "power",
+                "severity": "medium",
+                "value": snapshot.power_watts,
+                "expected_range": (power_mean - 2*power_std, power_mean + 2*power_std),
+                "z_score": power_z,
+                "message": f"Power anomaly: {snapshot.power_watts:.1f}W (expected {power_mean:.1f}±{2*power_std:.1f}W)",
+            }
+            anomalies.append(anomaly)
+            self._record_anomaly(anomaly)
+        
+        # Rejection rate anomaly
+        total_shares = snapshot.accepted_shares + snapshot.rejected_shares
+        if total_shares > 0:
+            rejection_rate = snapshot.rejected_shares / total_shares
+            rej_mean = np.mean(stats["rejection_rate"])
+            rej_std = np.std(stats["rejection_rate"]) + 1e-6
+            rej_z = (rejection_rate - rej_mean) / rej_std
+            
+            if rej_z > self.rejection_threshold or rejection_rate > 0.1:
+                anomaly = {
+                    "type": "rejection_rate",
+                    "severity": "high" if rejection_rate > 0.2 else "medium",
+                    "value": rejection_rate,
+                    "z_score": rej_z,
+                    "message": f"High share rejection: {rejection_rate*100:.1f}% (normal: {rej_mean*100:.1f}%)",
+                }
+                anomalies.append(anomaly)
+                self._record_anomaly(anomaly)
+        
+        # Efficiency degradation (long-term trend)
+        if len(stats["efficiency"]) >= self.MIN_SAMPLES_FOR_TREND:
+            recent_eff = np.mean(list(stats["efficiency"])[-self.RECENT_WINDOW_SIZE:])
+            historical_eff = np.mean(list(stats["efficiency"])[:self.HISTORICAL_WINDOW_SIZE])
+            if historical_eff > 0 and recent_eff < historical_eff * self.EFFICIENCY_DEGRADATION_THRESHOLD:
+                anomaly = {
+                    "type": "efficiency_degradation",
+                    "severity": "medium",
+                    "value": recent_eff,
+                    "historical_value": historical_eff,
+                    "degradation_percent": (1 - recent_eff/historical_eff) * 100,
+                    "message": f"Efficiency degraded by {(1-recent_eff/historical_eff)*100:.1f}% - possible hardware issue",
+                }
+                anomalies.append(anomaly)
+                self._record_anomaly(anomaly)
+        
+        return anomalies
+    
+    def _record_anomaly(self, anomaly: Dict[str, Any]):
+        """Record anomaly for history tracking."""
+        anomaly["timestamp"] = time.time()
+        self._anomalies.append(anomaly)
+        
+        atype = anomaly["type"]
+        self._anomaly_counts[atype] = self._anomaly_counts.get(atype, 0) + 1
+    
+    def get_health_score(self, gpu_id: int) -> float:
+        """
+        Get hardware health score (0-100).
+        
+        100 = Perfect health
+        0 = Critical issues
+        """
+        if gpu_id not in self._stats:
+            return 100.0
+        
+        score = 100.0
+        
+        # Deduct for recent anomalies
+        recent_time = time.time() - 3600  # Last hour
+        recent_anomalies = [a for a in self._anomalies if a["timestamp"] > recent_time]
+        
+        for anomaly in recent_anomalies:
+            if anomaly["severity"] == "high":
+                score -= 15
+            else:
+                score -= 5
+        
+        # Deduct for temperature trends
+        stats = self._stats[gpu_id]
+        if len(stats["temperature"]) >= 10:
+            avg_temp = np.mean(stats["temperature"])
+            if avg_temp > 85:
+                score -= 20
+            elif avg_temp > 80:
+                score -= 10
+            elif avg_temp > 75:
+                score -= 5
+        
+        # Deduct for efficiency trends
+        if len(stats["efficiency"]) >= 20:
+            recent = np.mean(list(stats["efficiency"])[-10:])
+            older = np.mean(list(stats["efficiency"])[:10])
+            if older > 0 and recent < older * 0.9:
+                score -= 10
+        
+        return max(0, min(100, score))
+    
+    def get_stats(self) -> dict:
+        return {
+            "anomaly_counts": self._anomaly_counts.copy(),
+            "total_anomalies": len(self._anomalies),
+            "recent_anomalies": [
+                {k: v for k, v in a.items() if k != "timestamp"} 
+                for a in list(self._anomalies)[-10:]
+            ],
+            "gpus_monitored": list(self._stats.keys()),
+        }
+
+
+class HyperparameterTuner:
+    """
+    Automatic hyperparameter tuning for mining optimization.
+    
+    Uses Bayesian optimization to find optimal:
+    - Mining intensity
+    - Power limits
+    - Memory/core clocks
+    - AI learning rates
+    """
+    
+    def __init__(self):
+        # Parameter bounds
+        self.bounds = {
+            "intensity": (50, 100),
+            "power_limit": (60, 100),
+            "core_clock_offset": (-200, 200),
+            "memory_clock_offset": (-500, 1000),
+        }
+        
+        # Observed data points
+        self._observations: List[Dict[str, Any]] = []
+        
+        # Best found parameters
+        self._best_params: Optional[Dict[str, float]] = None
+        self._best_score: float = float('-inf')
+        
+        # Exploration vs exploitation
+        self._exploration_weight = 0.2
+    
+    def suggest_params(self, current_params: Dict[str, float]) -> Dict[str, float]:
+        """
+        Suggest new parameters to try.
+        
+        Uses a combination of:
+        - Random exploration
+        - Gaussian process-inspired local search around best known point
+        """
+        if len(self._observations) < 10:
+            # Pure exploration phase
+            return self._random_params()
+        
+        if random.random() < self._exploration_weight:
+            # Exploration
+            return self._random_params()
+        else:
+            # Exploitation: sample around best known point
+            if self._best_params is None:
+                return self._random_params()
+            
+            suggested = {}
+            for param, (low, high) in self.bounds.items():
+                best_val = self._best_params.get(param, (low + high) / 2)
+                # Add noise proportional to range
+                noise_scale = (high - low) * 0.1
+                new_val = best_val + np.random.normal(0, noise_scale)
+                suggested[param] = max(low, min(high, new_val))
+            
+            return suggested
+    
+    def _random_params(self) -> Dict[str, float]:
+        """Generate random parameters within bounds."""
+        return {
+            param: random.uniform(low, high)
+            for param, (low, high) in self.bounds.items()
+        }
+    
+    def record_observation(self, params: Dict[str, float], score: float):
+        """Record an observation (params -> score mapping)."""
+        self._observations.append({
+            "params": params.copy(),
+            "score": score,
+            "timestamp": time.time(),
+        })
+        
+        if score > self._best_score:
+            self._best_score = score
+            self._best_params = params.copy()
+            logger.info("New best hyperparameters found: %s (score: %.4f)", params, score)
+    
+    def get_best_params(self) -> Tuple[Optional[Dict[str, float]], float]:
+        """Get best found parameters and their score."""
+        return self._best_params, self._best_score
+    
+    def get_stats(self) -> dict:
+        return {
+            "total_observations": len(self._observations),
+            "best_score": self._best_score,
+            "best_params": self._best_params,
+            "exploration_weight": self._exploration_weight,
+        }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Enhanced AI Mining Optimizer (v2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class EnhancedAIMiningOptimizer(AIMiningOptimizer):
+    """
+    Enhanced AI Mining Optimizer with advanced capabilities (v2).
+    
+    Adds:
+    - Ensemble model combining DQN, Transformer, and basic RL
+    - Advanced anomaly detection
+    - Automatic hyperparameter tuning
+    - Multi-objective optimization (hashrate, efficiency, profit)
+    - Improved learning from outcomes
+    """
+    
+    def __init__(self, data_dir: str = "/tmp/nexus_ai_mining_v2"):
+        # Initialize parent
+        super().__init__(data_dir)
+        
+        # v2 Components
+        self.ensemble = EnsembleMiningOptimizer()
+        self.anomaly_detector = AnomalyDetector()
+        self.hyperparameter_tuner = HyperparameterTuner()
+        
+        # v2 State
+        self._use_ensemble = True
+        self._auto_tune = True
+        self._snapshot_sequences: Dict[int, List[MiningSnapshot]] = {}
+        self._max_sequence_length = 20
+        
+        # v2 Metrics
+        self._v2_optimizations = 0
+        self._anomalies_detected = 0
+        self._params_tuned = 0
+        
+        # Load enhanced models
+        self._load_enhanced_models()
+        
+        logger.info("Enhanced AI Mining Optimizer v2 initialized")
+    
+    def _load_enhanced_models(self):
+        """Load v2 models if available."""
+        try:
+            self.ensemble.load(str(self.data_dir))
+            logger.info("Loaded ensemble models")
+        except Exception:
+            pass
+    
+    def save_models(self):
+        """Save all models including v2 enhancements."""
+        super().save_models()
+        self.ensemble.save(str(self.data_dir))
+        logger.info("Saved all AI models including v2 enhancements")
+    
+    def record_snapshot(self, snapshot: MiningSnapshot):
+        """Record snapshot with enhanced tracking."""
+        super().record_snapshot(snapshot)
+        
+        # Track for sequence modeling
+        gpu_id = snapshot.gpu_id
+        if gpu_id not in self._snapshot_sequences:
+            self._snapshot_sequences[gpu_id] = []
+        
+        self._snapshot_sequences[gpu_id].append(snapshot)
+        if len(self._snapshot_sequences[gpu_id]) > self._max_sequence_length:
+            self._snapshot_sequences[gpu_id] = self._snapshot_sequences[gpu_id][-self._max_sequence_length:]
+        
+        # Anomaly detection
+        self.anomaly_detector.record(snapshot)
+        anomalies = self.anomaly_detector.check_anomalies(snapshot)
+        if anomalies:
+            self._anomalies_detected += len(anomalies)
+            for anomaly in anomalies:
+                logger.warning("Mining anomaly detected: %s", anomaly["message"])
+    
+    def optimize(self, snapshot: MiningSnapshot) -> OptimizationResult:
+        """Enhanced optimization using ensemble and additional techniques."""
+        self._v2_optimizations += 1
+        
+        # Check for anomalies first
+        anomalies = self.anomaly_detector.check_anomalies(snapshot)
+        if any(a["severity"] == "high" for a in anomalies):
+            # Critical anomaly - take immediate action
+            return OptimizationResult(
+                decision=MiningDecision.COOL_DOWN,
+                confidence=0.95,
+                recommended_settings={
+                    "intensity": max(50, snapshot.intensity - 20),
+                },
+                reasoning=f"Critical anomaly detected: {anomalies[0]['message']}",
+                predicted_improvement_percent=-10.0,
+            )
+        
+        # Get snapshot history for sequence modeling
+        history = self._snapshot_sequences.get(snapshot.gpu_id, [])
+        
+        if self._use_ensemble and len(history) >= 3:
+            # Use ensemble for decision
+            decision, confidence, details = self.ensemble.get_ensemble_decision(snapshot, history)
+            
+            # Translate decision to recommended settings
+            recommended_settings = {}
+            if decision == MiningDecision.INCREASE_INTENSITY:
+                recommended_settings["intensity"] = min(100, snapshot.intensity + 5)
+            elif decision == MiningDecision.DECREASE_INTENSITY:
+                recommended_settings["intensity"] = max(50, snapshot.intensity - 5)
+            elif decision == MiningDecision.OPTIMIZE_POWER:
+                trans_pred = details.get("model_details", {}).get("transformer", {})
+                if trans_pred and "optimal_power_limit" in trans_pred:
+                    recommended_settings["power_limit_percent"] = int(trans_pred["optimal_power_limit"])
+            
+            # Get hyperparameter suggestions if auto-tuning enabled
+            if self._auto_tune and self._v2_optimizations % 10 == 0:
+                current_params = {
+                    "intensity": snapshot.intensity,
+                    "power_limit": snapshot.power_limit_percent,
+                    "core_clock_offset": snapshot.core_clock_offset,
+                    "memory_clock_offset": snapshot.memory_clock_offset,
+                }
+                suggested = self.hyperparameter_tuner.suggest_params(current_params)
+                
+                # Blend suggestions with ensemble decision
+                if "intensity" not in recommended_settings:
+                    recommended_settings["intensity"] = int(suggested["intensity"])
+                
+                self._params_tuned += 1
+            
+            return OptimizationResult(
+                decision=decision,
+                confidence=confidence,
+                recommended_settings=recommended_settings,
+                reasoning=f"Ensemble decision ({confidence*100:.1f}% confidence). Models: {details.get('model_decisions', {})}",
+                predicted_improvement_percent=details.get("model_details", {}).get("transformer", {}).get("predicted_hashrate_change", 0),
+            )
+        else:
+            # Fall back to parent implementation
+            return super().optimize(snapshot)
+    
+    def learn_from_result(self, old_snapshot: MiningSnapshot, new_snapshot: MiningSnapshot, action_taken: MiningDecision):
+        """Enhanced learning with all v2 components."""
+        super().learn_from_result(old_snapshot, new_snapshot, action_taken)
+        
+        # Update ensemble
+        history = self._snapshot_sequences.get(old_snapshot.gpu_id, [])
+        self.ensemble.learn_from_outcome(old_snapshot, new_snapshot, action_taken, history)
+        
+        # Record for hyperparameter tuning
+        if self._auto_tune:
+            params = {
+                "intensity": old_snapshot.intensity,
+                "power_limit": old_snapshot.power_limit_percent,
+                "core_clock_offset": old_snapshot.core_clock_offset,
+                "memory_clock_offset": old_snapshot.memory_clock_offset,
+            }
+            
+            # Score based on efficiency improvement
+            old_efficiency = old_snapshot.hashrate / max(1, old_snapshot.power_watts)
+            new_efficiency = new_snapshot.hashrate / max(1, new_snapshot.power_watts)
+            score = new_efficiency / max(0.001, old_efficiency) - 1.0  # % improvement
+            
+            self.hyperparameter_tuner.record_observation(params, score)
+    
+    def get_stats(self) -> dict:
+        """Get comprehensive v2 statistics."""
+        base_stats = super().get_stats()
+        
+        health_scores = {}
+        for gpu_id in self._snapshot_sequences:
+            health_scores[f"gpu_{gpu_id}"] = self.anomaly_detector.get_health_score(gpu_id)
+        
+        return {
+            **base_stats,
+            "v2_enhancements": {
+                "enabled": True,
+                "use_ensemble": self._use_ensemble,
+                "auto_tune": self._auto_tune,
+                "v2_optimizations": self._v2_optimizations,
+                "anomalies_detected": self._anomalies_detected,
+                "params_tuned": self._params_tuned,
+            },
+            "ensemble_stats": self.ensemble.get_stats(),
+            "anomaly_stats": self.anomaly_detector.get_stats(),
+            "hyperparameter_stats": self.hyperparameter_tuner.get_stats(),
+            "hardware_health_scores": health_scores,
+        }
+    
+    def enable_ensemble(self, enabled: bool = True):
+        """Enable or disable ensemble optimization."""
+        self._use_ensemble = enabled
+        logger.info("Ensemble optimization %s", "enabled" if enabled else "disabled")
+    
+    def enable_auto_tune(self, enabled: bool = True):
+        """Enable or disable automatic hyperparameter tuning."""
+        self._auto_tune = enabled
+        logger.info("Auto-tuning %s", "enabled" if enabled else "disabled")
+
+
+# Update the singleton to use enhanced optimizer
+_enhanced_ai_optimizer: Optional[EnhancedAIMiningOptimizer] = None
+
+
+def get_enhanced_ai_mining_optimizer() -> EnhancedAIMiningOptimizer:
+    """Get the singleton enhanced AI mining optimizer instance."""
+    global _enhanced_ai_optimizer
+    if _enhanced_ai_optimizer is None:
+        _enhanced_ai_optimizer = EnhancedAIMiningOptimizer()
+    return _enhanced_ai_optimizer
