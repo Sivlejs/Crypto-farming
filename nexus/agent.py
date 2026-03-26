@@ -157,11 +157,15 @@ class NexusAgent:
         opp_dict = opp.__dict__ if hasattr(opp, "__dict__") else {}
         self.brain.record_opportunity(opp_dict)
 
+        # Get strategy type for decision making
+        opp_type = opp_dict.get("type", "")
+        strategy_name = opp_type.replace("_", "").lower() if opp_type else ""
+        
         # ── PoW Mining is continuous operation - skip Brain profit check ────
         # PoW mining accumulates small amounts over time and should not be
         # blocked by the minimum profit threshold designed for DeFi trades
-        strategy_name = opp_dict.get("type", "").replace("_", "").lower()
-        is_pow_mining = "pow" in strategy_name or "mining" in strategy_name
+        # Use exact match against known mining strategy types
+        is_pow_mining = strategy_name == "powmining" or opp_type == "pow_mining"
         
         if is_pow_mining:
             # For PoW mining, just log status and continue - don't execute as trade

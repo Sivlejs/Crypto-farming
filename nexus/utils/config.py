@@ -111,7 +111,8 @@ class Config:
     MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "stratum+tcp://etc.2miners.com:1010")
     # Mining pool username/worker name - auto-generates a default worker if not set
     # Format: wallet_address.worker_name or just worker_name for pool registration
-    _default_worker = os.getenv("WALLET_ADDRESS", "")[:42] or "0x0000000000000000000000000000000000000000"
+    _wallet_env = os.getenv("WALLET_ADDRESS", "")
+    _default_worker = _wallet_env if _wallet_env else "0x0000000000000000000000000000000000000000"
     MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", f"{_default_worker}.nexus_worker")
     # Mining pool password (usually 'x' or empty)
     MINING_POOL_PASSWORD: str = os.getenv("MINING_POOL_PASSWORD", "x")

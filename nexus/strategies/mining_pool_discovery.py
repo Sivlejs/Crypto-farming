@@ -536,12 +536,17 @@ class CoinPriceFetcher:
         "ALPH": 2.00,
     }
     
+    # Timing constants for rate limiting
+    CACHE_TTL_SECONDS = 600  # 10 minutes to balance freshness with API rate limits
+    MIN_API_INTERVAL_SECONDS = 30.0  # Minimum seconds between API calls
+    RATE_LIMIT_BACKOFF_SECONDS = 120  # Backoff duration when rate limited (2 minutes)
+    
     def __init__(self):
         self._cache: Dict[str, Tuple[float, float]] = {}  # coin -> (price, timestamp)
-        self._cache_ttl = 600  # 10 minutes (increased to reduce API calls)
+        self._cache_ttl = self.CACHE_TTL_SECONDS
         self._lock = threading.Lock()
         self._last_api_call = 0.0
-        self._min_api_interval = 30.0  # Minimum seconds between API calls
+        self._min_api_interval = self.MIN_API_INTERVAL_SECONDS
         self._rate_limited_until = 0.0  # Timestamp when rate limiting expires
     
     def get_price(self, coin: str) -> float:
@@ -634,8 +639,9 @@ class CoinPriceFetcher:
             
             # Handle rate limiting
             if response.status_code == 429:
-                self._rate_limited_until = time.time() + 120  # Wait 2 minutes
-                logger.warning("CoinGecko rate limited, using fallback prices for 2 minutes")
+                self._rate_limited_until = time.time() + self.RATE_LIMIT_BACKOFF_SECONDS
+                logger.warning("CoinGecko rate limited, using fallback prices for %d seconds", 
+                              self.RATE_LIMIT_BACKOFF_SECONDS)
                 return {coin.upper(): self._get_fallback_price(coin) for coin in coins}
             
             response.raise_for_status()

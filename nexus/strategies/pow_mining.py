@@ -96,6 +96,13 @@ except ImportError:
     AI_OPTIMIZER_AVAILABLE = False
     ENHANCED_AI_AVAILABLE = False
 
+# Import simulated pool client for fallback mode
+try:
+    from nexus.strategies.pool_manager import SimulatedStratumClient
+    SIMULATION_AVAILABLE = True
+except ImportError:
+    SIMULATION_AVAILABLE = False
+
 
 logger = get_logger(__name__)
 
@@ -1544,19 +1551,17 @@ class PoWMiningStrategy(BaseStrategy):
         if not pool_connected:
             # Fall back to simulation mode for testing/development
             logger.warning("Pool connection failed, switching to simulation mode for vGPU mining")
-            try:
-                from nexus.strategies.pool_manager import SimulatedStratumClient
-                self._stratum = SimulatedStratumClient(
-                    pool_url="simulated://vgpu-mining:3333",
-                    username=self.config.MINING_POOL_USER or "nexus.worker",
-                    password=self.config.MINING_POOL_PASSWORD or "x",
-                    algorithm=self.config.MINING_ALGORITHM,
-                )
-                if not self._stratum.connect():
-                    logger.error("Even simulated pool failed")
-                    return False
-            except ImportError:
+            if not SIMULATION_AVAILABLE:
                 logger.error("Simulation mode not available")
+                return False
+            self._stratum = SimulatedStratumClient(
+                pool_url="simulated://vgpu-mining:3333",
+                username=self.config.MINING_POOL_USER or "nexus.worker",
+                password=self.config.MINING_POOL_PASSWORD or "x",
+                algorithm=self.config.MINING_ALGORITHM,
+            )
+            if not self._stratum.connect():
+                logger.error("Even simulated pool failed")
                 return False
         
         # Subscribe and authorize
@@ -1587,9 +1592,11 @@ class PoWMiningStrategy(BaseStrategy):
     
     def _start_simulated_mining(self) -> bool:
         """Start mining in simulation mode when pool connection is unavailable."""
+        if not SIMULATION_AVAILABLE:
+            logger.error("Simulation mode not available - SimulatedStratumClient import failed")
+            return False
+        
         try:
-            from nexus.strategies.pool_manager import SimulatedStratumClient
-            
             self._stratum = SimulatedStratumClient(
                 pool_url="simulated://vgpu-mining:3333",
                 username=self.config.MINING_POOL_USER or "nexus.worker",
