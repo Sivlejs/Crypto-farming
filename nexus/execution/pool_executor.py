@@ -368,6 +368,118 @@ class PoolExecutor:
             
             time.sleep(300)  # Check every 5 minutes
 
+    # ── Pool Validation ───────────────────────────────────────
+
+    def validate_pool_connectivity(self, pool_id: str) -> dict:
+        """
+        Validate that a pool can be connected to and executed.
+        
+        This checks:
+        1. Pool data exists and is valid
+        2. Blockchain connection is available for the pool's chain
+        3. Router contract exists for the protocol
+        4. User has necessary approvals (optional)
+        
+        Args:
+            pool_id: The pool identifier
+            
+        Returns:
+            Dictionary with validation results
+        """
+        result = {
+            "pool_id": pool_id,
+            "valid": False,
+            "chain_connected": False,
+            "router_available": False,
+            "pool_exists": False,
+            "errors": [],
+        }
+        
+        # Check if pool exists
+        pool = self._get_pool_data(pool_id)
+        if not pool:
+            result["errors"].append(f"Pool {pool_id} not found")
+            return result
+        
+        result["pool_exists"] = True
+        result["chain"] = pool.chain
+        result["protocol"] = pool.protocol
+        
+        # Check blockchain connection
+        if not self._bm:
+            result["errors"].append("BlockchainManager not configured")
+            return result
+        
+        w3 = self._bm.get_web3(pool.chain)
+        if w3 and w3.is_connected():
+            result["chain_connected"] = True
+        else:
+            result["errors"].append(f"No connection to {pool.chain}")
+        
+        # Check router availability
+        router = self._get_router_address(pool.protocol, pool.chain)
+        if router:
+            result["router_available"] = True
+            result["router_address"] = router
+        else:
+            result["errors"].append(f"No router found for {pool.protocol} on {pool.chain}")
+        
+        # Overall validation
+        result["valid"] = (
+            result["pool_exists"] and
+            result["chain_connected"] and
+            result["router_available"]
+        )
+        
+        return result
+
+    def get_connectable_pools(self, limit: int = 20) -> list:
+        """
+        Get pools that can actually be connected to and traded.
+        
+        This filters the pool list to only include pools where:
+        1. The chain is connected
+        2. A router is available for the protocol
+        
+        Args:
+            limit: Maximum number of pools to return
+            
+        Returns:
+            List of PoolData objects that are connectable
+        """
+        if not self._bm:
+            logger.warning("BlockchainManager not configured, no connectable pools")
+            return []
+        
+        connected_chains = set(self._bm.connected_chains())
+        if not connected_chains:
+            logger.warning("No blockchain connections available")
+            return []
+        
+        pools = self._pool_fetcher.fetch_all_pools()
+        connectable = []
+        
+        for pool in pools:
+            # Check chain connection
+            if pool.chain not in connected_chains:
+                continue
+            
+            # Check router availability
+            router = self._get_router_address(pool.protocol, pool.chain)
+            if not router:
+                continue
+            
+            connectable.append(pool)
+            if len(connectable) >= limit:
+                break
+        
+        logger.info(
+            "Found %d connectable pools from %d total (chains: %s)",
+            len(connectable), len(pools), connected_chains
+        )
+        
+        return connectable
+
     # ── Pool Entry ────────────────────────────────────────────
 
     def enter_pool(
