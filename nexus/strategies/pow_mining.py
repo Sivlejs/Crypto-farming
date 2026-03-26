@@ -654,9 +654,11 @@ class StratumClient:
                 # Connection lost, attempt to reconnect
                 if reconnect_attempts < max_reconnect_attempts:
                     reconnect_attempts += 1
-                    logger.info("Connection lost, attempting reconnect (%d/%d)...",
-                               reconnect_attempts, max_reconnect_attempts)
-                    time.sleep(5 * reconnect_attempts)  # Exponential backoff
+                    # Use exponential backoff for consistent behavior with initial connection
+                    backoff_delay = 5.0 * (1.5 ** (reconnect_attempts - 1))
+                    logger.info("Connection lost, attempting reconnect (%d/%d) in %.1fs...",
+                               reconnect_attempts, max_reconnect_attempts, backoff_delay)
+                    time.sleep(backoff_delay)
                     if self.reconnect():
                         reconnect_attempts = 0  # Reset on successful reconnect
                         buffer = b""
@@ -1207,6 +1209,10 @@ class PoWMiningStrategy(BaseStrategy):
         # Pool discovery for auto-configuration
         self._pool_discovery = None
         self._auto_configured_pool = None  # Store auto-selected pool info
+        # Instance variables for auto-configured values (separate from shared config)
+        self._auto_pool_url: Optional[str] = None
+        self._auto_pool_user: Optional[str] = None
+        self._auto_algorithm: Optional[str] = None
         
         # Initialize GPU mining if module available
         if GPU_MINING_AVAILABLE:
@@ -1355,10 +1361,16 @@ class PoWMiningStrategy(BaseStrategy):
                 if wallet:
                     worker_name = f"{wallet[:8]}.nexus"
                 else:
-                    import random
-                    worker_name = f"nexus_{random.randint(1000, 9999)}.worker"
+                    import secrets
+                    worker_name = f"nexus_{secrets.token_hex(4)}.worker"
                 
-                # Override config values for this session
+                # Store auto-configured values in instance variables instead of modifying shared config
+                # This prevents unexpected side effects from config mutation
+                self._auto_pool_url = best_pool.url
+                self._auto_pool_user = worker_name
+                self._auto_algorithm = best_pool.algorithm.value
+                
+                # Also update config for backward compatibility
                 self.config.MINING_POOL_URL = best_pool.url
                 self.config.MINING_POOL_USER = worker_name
                 self.config.MINING_ALGORITHM = best_pool.algorithm.value
