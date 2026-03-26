@@ -758,9 +758,10 @@ class MiningPoolDiscovery:
                 # Connection failed but host may be reachable - mark as DEGRADED
                 # instead of OFFLINE to allow retry attempts
                 return PoolStatus.DEGRADED, 0.0
-        except socket.timeout:
-            # Timeout suggests network issues but pool may be accessible
-            logger.debug("Pool connectivity check timed out for %s", url)
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            # Connection issues: timeout, refused, or network errors
+            # Mark as DEGRADED to indicate connectivity issues but allow retry
+            logger.debug("Pool connectivity check failed for %s (connection issue)", url)
             return PoolStatus.DEGRADED, 0.0
         except Exception as e:
             logger.debug("Pool connectivity check failed for %s: %s", url, e)
@@ -877,8 +878,8 @@ class MiningPoolDiscovery:
     def get_best_pool(self, algorithm: Optional[MiningAlgorithmType] = None) -> Optional[MiningPool]:
         """Get the best scoring pool, optionally filtered by algorithm."""
         pools = self.get_all_pools() if algorithm is None else self.get_pools_by_algorithm(algorithm)
-        # Include ONLINE and UNKNOWN pools (UNKNOWN = not yet checked, likely good)
-        # Exclude only OFFLINE (connection failed) and DEGRADED (unreliable)
+        # Only include ONLINE (verified reachable) and UNKNOWN (not yet checked) pools
+        # This excludes OFFLINE and DEGRADED pools which have known connectivity issues
         usable_pools = [p for p in pools if p.status in (PoolStatus.ONLINE, PoolStatus.UNKNOWN)]
         
         if not usable_pools:
