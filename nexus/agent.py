@@ -157,14 +157,31 @@ class NexusAgent:
         opp_dict = opp.__dict__ if hasattr(opp, "__dict__") else {}
         self.brain.record_opportunity(opp_dict)
 
-        # ── Brain go/no-go decision ────────────────────────────
+        # Get strategy type for decision making
+        opp_type = opp_dict.get("type", "")
+        strategy_name = opp_type.replace("_", "").lower() if opp_type else ""
+        
+        # ── PoW Mining is continuous operation - skip Brain profit check ────
+        # PoW mining accumulates small amounts over time and should not be
+        # blocked by the minimum profit threshold designed for DeFi trades
+        # Use exact match against known mining strategy types
+        is_pow_mining = strategy_name == "powmining" or opp_type == "pow_mining"
+        
+        if is_pow_mining:
+            # For PoW mining, just log status and continue - don't execute as trade
+            logger.debug(
+                "PoW mining active: %s (continuous operation)",
+                opp.description[:80] if hasattr(opp, 'description') else "mining"
+            )
+            return  # Mining runs continuously, doesn't need execution
+        
+        # ── Brain go/no-go decision (for non-mining strategies) ────
         go, reason = self.brain.should_execute(opp_dict)
         if not go:
             logger.info("Brain skipped opportunity: %s", reason)
             return
 
         # ── Gas-aware trade deferral for low-urgency strategies ────
-        strategy_name = opp_dict.get("type", "").replace("_", "").lower()
         if strategy_name not in _URGENT_STRATEGIES:
             if not self.scheduler.is_good_time(opp.chain, strategy_name):
                 # Defer to scheduler instead of skipping entirely

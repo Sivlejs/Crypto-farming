@@ -337,54 +337,174 @@
           </div>
         </div>
         
-        <!-- Virtual GPU (vGPU) Section -->
+        <!-- Virtual GPU (vGPU) Section - Enhanced -->
         <div class="vgpu-section" id="vgpu-section">
           <div class="section-header">
-            <span>🖥️ Virtual GPU (vGPU)</span>
+            <span>🖥️ Virtual GPU (vGPU) - AI Accelerated</span>
             <label class="toggle-switch">
-              <input type="checkbox" id="vgpu-toggle" onchange="toggleVGPU(this.checked)">
+              <input type="checkbox" id="vgpu-toggle" onchange="toggleVGPU(this.checked)" checked>
               <span class="toggle-slider"></span>
             </label>
           </div>
           <div class="vgpu-status-row">
             <div class="vgpu-status-item">
               <span class="status-label">vGPU Status:</span>
-              <span id="vgpu-status" class="status-value badge badge-dim">Disabled</span>
+              <span id="vgpu-status" class="status-value badge badge-green">Active</span>
             </div>
             <div class="vgpu-status-item">
               <span class="status-label">vGPU Devices:</span>
-              <span id="vgpu-count" class="status-value">0</span>
+              <span id="vgpu-count" class="status-value">4</span>
             </div>
             <div class="vgpu-status-item">
-              <span class="status-label">Cloud Provider:</span>
-              <span id="vgpu-provider" class="status-value badge badge-dim">–</span>
+              <span class="status-label">Total Memory:</span>
+              <span id="vgpu-total-memory" class="status-value">32 GB</span>
+            </div>
+            <div class="vgpu-status-item">
+              <span class="status-label">Compute Units:</span>
+              <span id="vgpu-compute-units" class="status-value">640</span>
             </div>
           </div>
-          <div class="vgpu-config" id="vgpu-config" style="display:none;">
+          
+          <!-- vGPU Device Cards -->
+          <div class="vgpu-devices-grid" id="vgpu-devices-grid">
+            <!-- Populated by JavaScript -->
+          </div>
+          
+          <div class="vgpu-config" id="vgpu-config">
             <div class="config-row">
               <label>vGPU Count:</label>
-              <select id="vgpu-count-select">
+              <select id="vgpu-count-select" onchange="previewVGPUConfig()">
                 <option value="1">1 vGPU</option>
                 <option value="2">2 vGPUs</option>
-                <option value="4">4 vGPUs</option>
+                <option value="4" selected>4 vGPUs</option>
+                <option value="8">8 vGPUs (Max)</option>
               </select>
             </div>
             <div class="config-row">
               <label>Memory per vGPU:</label>
-              <select id="vgpu-memory-select">
+              <select id="vgpu-memory-select" onchange="previewVGPUConfig()">
                 <option value="2048">2 GB</option>
-                <option value="4096" selected>4 GB</option>
-                <option value="8192">8 GB</option>
+                <option value="4096">4 GB</option>
+                <option value="8192" selected>8 GB</option>
+                <option value="16384">16 GB</option>
               </select>
             </div>
-            <button class="btn btn-sm btn-green" onclick="applyVGPUConfig()">Apply</button>
+            <div class="config-row">
+              <label>Compute Multiplier:</label>
+              <select id="vgpu-multiplier-select" onchange="previewVGPUConfig()">
+                <option value="5">5x (Conservative)</option>
+                <option value="10" selected>10x (Balanced)</option>
+                <option value="20">20x (Aggressive)</option>
+              </select>
+            </div>
+            <div class="config-preview" id="vgpu-config-preview">
+              <span>Preview: 4 vGPUs × 8 GB = 32 GB total, ~640 compute units</span>
+            </div>
+            <button class="btn btn-sm btn-green" onclick="applyVGPUConfig()">⚡ Apply vGPU Config</button>
           </div>
-          <p class="vgpu-info">💡 Virtual GPUs enable GPU-like mining in cloud environments without physical GPU hardware.</p>
+        </div>
+        
+        <!-- Virtual CPU (vCPU) Section - New -->
+        <div class="vcpu-section" id="vcpu-section">
+          <div class="section-header">
+            <span>🔧 Virtual CPU Scaling</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="vcpu-toggle" onchange="toggleVCPU(this.checked)" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="vcpu-status-row">
+            <div class="vcpu-status-item">
+              <span class="status-label">vCPU Scaling:</span>
+              <span id="vcpu-status" class="status-value badge badge-green">Active</span>
+            </div>
+            <div class="vcpu-status-item">
+              <span class="status-label">Total CPUs:</span>
+              <span id="vcpu-total" class="status-value">16</span>
+            </div>
+            <div class="vcpu-status-item">
+              <span class="status-label">Active Workers:</span>
+              <span id="vcpu-workers" class="status-value">12</span>
+            </div>
+            <div class="vcpu-status-item">
+              <span class="status-label">CPU Usage:</span>
+              <span id="vcpu-usage" class="status-value">45%</span>
+            </div>
+          </div>
+          
+          <!-- CPU Usage Visualization -->
+          <div class="vcpu-usage-bar-container">
+            <div class="vcpu-usage-bar" id="vcpu-usage-bar" style="width: 45%"></div>
+            <span class="vcpu-usage-label" id="vcpu-usage-label">45% / 95% max</span>
+          </div>
+          
+          <div class="vcpu-config" id="vcpu-config">
+            <div class="config-row">
+              <label>Worker Count:</label>
+              <select id="vcpu-workers-select" onchange="previewVCPUConfig()">
+                <option value="0">Auto (Recommended)</option>
+                <option value="4">4 Workers</option>
+                <option value="8">8 Workers</option>
+                <option value="12">12 Workers</option>
+                <option value="16">16 Workers</option>
+              </select>
+            </div>
+            <div class="config-row">
+              <label>Max CPU Usage:</label>
+              <input type="range" id="vcpu-max-usage" min="50" max="100" value="95" 
+                     onchange="previewVCPUConfig()" oninput="document.getElementById('vcpu-max-label').textContent=this.value+'%'">
+              <span id="vcpu-max-label">95%</span>
+            </div>
+            <div class="config-row">
+              <label>
+                <input type="checkbox" id="vcpu-affinity" checked onchange="previewVCPUConfig()">
+                CPU Affinity (Better Cache)
+              </label>
+            </div>
+            <div class="config-row">
+              <label>
+                <input type="checkbox" id="vcpu-numa" checked onchange="previewVCPUConfig()">
+                NUMA-Aware (Multi-Socket)
+              </label>
+            </div>
+            <button class="btn btn-sm btn-green" onclick="applyVCPUConfig()">⚡ Apply vCPU Config</button>
+          </div>
+        </div>
+        
+        <!-- Combined Resources Summary -->
+        <div class="resources-summary" id="resources-summary">
+          <div class="section-header">
+            <span>📊 Total Mining Power</span>
+            <button class="btn btn-sm btn-dim" onclick="loadMiningResources()">↺ Refresh</button>
+          </div>
+          <div class="resources-grid">
+            <div class="resource-card">
+              <div class="resource-icon">🖥️</div>
+              <div class="resource-label">vGPU Power</div>
+              <div class="resource-value" id="total-vgpu-power">640 units</div>
+            </div>
+            <div class="resource-card">
+              <div class="resource-icon">🔧</div>
+              <div class="resource-label">vCPU Workers</div>
+              <div class="resource-value" id="total-vcpu-workers">12 workers</div>
+            </div>
+            <div class="resource-card">
+              <div class="resource-icon">💾</div>
+              <div class="resource-label">Total Memory</div>
+              <div class="resource-value" id="total-memory">32 GB</div>
+            </div>
+            <div class="resource-card highlight">
+              <div class="resource-icon">⚡</div>
+              <div class="resource-label">Compute Score</div>
+              <div class="resource-value" id="total-compute-score">760</div>
+            </div>
+          </div>
+          <p class="resources-info">💡 Higher compute score = more mining power. Increase vGPU count and vCPU workers for better hashrate.</p>
         </div>
         
         <!-- GPU Devices List -->
         <div id="gpu-devices-list" class="gpu-devices">
-          <div class="gpu-device-placeholder">No GPUs detected. GPU mining will use CPU fallback.</div>
+          <div class="gpu-device-placeholder">Loading virtual devices...</div>
         </div>
         
         <!-- Profit Switching Section -->

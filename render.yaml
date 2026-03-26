@@ -67,12 +67,29 @@ services:
         value: "3.11.0"
       - key: SERVICE_ROLE
         value: "worker"
+      # ── Enhanced vGPU Configuration ──────────────────────────────
       - key: MINING_VGPU_ENABLED
         value: "true"
       - key: MINING_VGPU_COUNT
-        value: "1"
+        value: "4"
       - key: MINING_VGPU_MEMORY_MB
-        value: "4096"
+        value: "8192"
+      - key: MINING_VGPU_COMPUTE_MULTIPLIER
+        value: "10.0"
+      # ── vCPU Scaling Configuration ───────────────────────────────
+      - key: MINING_VCPU_SCALING_ENABLED
+        value: "true"
+      - key: MINING_VCPU_WORKERS
+        value: "0"
+      - key: MINING_VCPU_MAX_USAGE
+        value: "95.0"
+      # ── Mining Optimization Settings ─────────────────────────────
+      - key: MINING_INTENSITY
+        value: "95"
+      - key: MINING_ADAPTIVE_MODE
+        value: "true"
+      - key: MINING_AI_OPTIMIZATION
+        value: "true"
       - key: REDIS_URL
         fromService:
           name: nexus-ai-redis

@@ -834,3 +834,110 @@ input:checked + .toggle-slider:before{transform:translateX(20px);background-colo
   .mining-activity{min-height:120px}
   .hash-animation{max-width:200px}
 }
+
+/* ════════════════════════════════════════════════════════════════
+   vGPU & vCPU Enhanced Styles
+   ═════════════════════════════════════════════════════════════════ */
+
+/* vGPU Devices Grid */
+.vgpu-devices-grid{
+  display:grid;grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
+  gap:.8rem;margin:.8rem 0;
+}
+.vgpu-device-card{
+  background:linear-gradient(135deg, var(--bg2), var(--bg3));
+  border:1px solid rgba(0,212,255,.3);border-radius:8px;
+  padding:.8rem;position:relative;overflow:hidden;
+}
+.vgpu-device-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg, var(--accent), var(--green));
+}
+.vgpu-device-card .device-name{
+  font-weight:600;font-size:.85rem;color:var(--text);margin-bottom:.4rem;
+}
+.vgpu-device-card .device-stats{
+  display:flex;flex-direction:column;gap:.25rem;font-size:.75rem;color:var(--text-mid);
+}
+.vgpu-device-card .device-stat{
+  display:flex;justify-content:space-between;
+}
+.vgpu-device-card .stat-value{color:var(--accent);font-weight:500}
+
+/* vCPU Section */
+.vcpu-section{
+  margin-top:1rem;padding:1rem;background:var(--bg3);border-radius:8px;
+  border:1px solid rgba(0,230,118,.2);
+}
+.vcpu-status-row{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:.8rem;margin-top:.6rem;
+}
+.vcpu-status-item{display:flex;flex-direction:column;gap:.2rem}
+.vcpu-config{
+  margin-top:.8rem;padding:.8rem;background:var(--bg2);border-radius:6px;
+  display:flex;flex-direction:column;gap:.6rem;
+}
+.vcpu-config .config-row{
+  display:flex;align-items:center;gap:.5rem;font-size:.85rem;
+}
+.vcpu-config input[type="range"]{
+  flex:1;accent-color:var(--green);
+}
+.vcpu-config input[type="checkbox"]{
+  accent-color:var(--green);width:16px;height:16px;
+}
+
+/* CPU Usage Bar */
+.vcpu-usage-bar-container{
+  margin:.8rem 0;background:var(--bg2);border-radius:6px;
+  height:28px;position:relative;overflow:hidden;
+}
+.vcpu-usage-bar{
+  height:100%;background:linear-gradient(90deg, var(--green), var(--accent));
+  border-radius:6px;transition:width .5s ease;
+}
+.vcpu-usage-label{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:.8rem;font-weight:600;color:var(--text);
+  text-shadow:0 0 4px var(--bg);
+}
+
+/* Resources Summary */
+.resources-summary{
+  margin-top:1.2rem;padding:1rem;
+  background:linear-gradient(135deg, var(--bg3), var(--bg2));
+  border-radius:10px;border:1px solid rgba(0,212,255,.15);
+}
+.resources-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-top:.8rem;
+}
+.resource-card{
+  background:var(--bg);padding:.8rem;border-radius:8px;text-align:center;
+  border:1px solid var(--bg4);transition:transform .2s,border-color .2s;
+}
+.resource-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.resource-card.highlight{
+  border-color:var(--green);
+  background:linear-gradient(135deg, rgba(0,230,118,.1), rgba(0,212,255,.1));
+}
+.resource-icon{font-size:1.5rem;margin-bottom:.3rem}
+.resource-label{font-size:.75rem;color:var(--text-mid);text-transform:uppercase}
+.resource-value{font-size:1.1rem;font-weight:700;color:var(--text);margin-top:.2rem}
+.resource-card.highlight .resource-value{color:var(--green)}
+.resources-info{
+  margin-top:.8rem;font-size:.8rem;color:var(--text-mid);
+  padding:.5rem;background:rgba(0,212,255,.05);border-radius:4px;
+}
+
+/* Config Preview */
+.config-preview{
+  width:100%;padding:.5rem;background:rgba(0,212,255,.1);
+  border-radius:4px;font-size:.8rem;color:var(--accent);margin-top:.5rem;
+}
+
+/* Responsive */
+@media (max-width:768px){
+  .vgpu-status-row,.vcpu-status-row{grid-template-columns:repeat(2,1fr)}
+  .resources-grid{grid-template-columns:repeat(2,1fr)}
+  .vgpu-devices-grid{grid-template-columns:1fr}
+}

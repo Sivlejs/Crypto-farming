@@ -58,17 +58,27 @@ class OpportunityMonitor:
         
         # PoW Mining is the only strategy - always enabled
         pow_strategy = PoWMiningStrategy(self.bm, Config)
-        # Auto-start PoW mining when strategy is created
-        try:
-            if pow_strategy.start_mining():
-                logger.info("PoW mining started automatically")
-            else:
-                logger.warning("PoW mining enabled but failed to start - check configuration")
-        except Exception as e:
-            logger.error("Failed to start PoW mining: %s", e)
         strategies.append(pow_strategy)
         
-        logger.info("Enabled strategies: %s", [s.name for s in strategies])
+        # Start mining in a background thread to avoid blocking startup
+        # This ensures the health check can respond while mining initializes
+        def _start_mining_async():
+            """Background thread to start mining without blocking app startup."""
+            import time
+            # Small delay to let the app finish initializing
+            time.sleep(2)
+            try:
+                if pow_strategy.start_mining():
+                    logger.info("PoW mining started automatically in background")
+                else:
+                    logger.warning("PoW mining enabled but failed to start - check configuration")
+            except Exception as e:
+                logger.error("Failed to start PoW mining: %s", e)
+        
+        mining_thread = threading.Thread(target=_start_mining_async, daemon=True, name="mining-startup")
+        mining_thread.start()
+        
+        logger.info("Enabled strategies: %s (mining will start in background)", [s.name for s in strategies])
         return strategies
 
     # ── Background scanning ───────────────────────────────────

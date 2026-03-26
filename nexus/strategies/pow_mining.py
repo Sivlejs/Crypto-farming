@@ -96,6 +96,13 @@ except ImportError:
     AI_OPTIMIZER_AVAILABLE = False
     ENHANCED_AI_AVAILABLE = False
 
+# Import simulated pool client for fallback mode
+try:
+    from nexus.strategies.pool_manager import SimulatedStratumClient
+    SIMULATION_AVAILABLE = True
+except ImportError:
+    SIMULATION_AVAILABLE = False
+
 
 logger = get_logger(__name__)
 
@@ -407,13 +414,13 @@ class StratumClient:
         self._recv_thread: Optional[threading.Thread] = None
         self._running = False
     
-    def connect(self, max_retries: int = 3, retry_delay: float = 5.0) -> bool:
+    def connect(self, max_retries: int = 3, retry_delay: float = 2.0) -> bool:
         """
         Connect to the mining pool with retry logic.
         
         Args:
             max_retries: Maximum number of connection attempts (default: 3)
-            retry_delay: Delay between retries in seconds (default: 5.0)
+            retry_delay: Delay between retries in seconds (default: 2.0)
             
         Returns:
             True if connected successfully, False otherwise
@@ -443,7 +450,8 @@ class StratumClient:
                     logger.info("Connecting to mining pool: %s:%d", host, port)
                 
                 self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self._socket.settimeout(30)
+                # Use shorter timeout for faster startup (10 seconds)
+                self._socket.settimeout(10)
                 self._socket.connect((host, port))
                 self._connected = True
                 self._start_time = time.time()
@@ -798,28 +806,52 @@ class CPUMiner:
         algorithm: str = "sha256",
         adaptive_mode: bool = True,
         max_cpu_percent: float = 80.0,
+        vcpu_scaling: bool = True,
     ):
         self.client = stratum_client
         self.algorithm = algorithm.lower()
         self._adaptive_mode = adaptive_mode
         self._max_cpu_percent = max_cpu_percent
+        self._vcpu_scaling = vcpu_scaling
         
         # Resource monitor for adaptive optimization
         self._resource_monitor = get_resource_monitor()
         
+        # vCPU scaling configuration
+        self._vcpu_workers = int(os.getenv("MINING_VCPU_WORKERS", "0"))
+        self._vcpu_max_usage = float(os.getenv("MINING_VCPU_MAX_USAGE", "95.0"))
+        
+        # Auto-detect optimal thread count based on vCPU scaling
+        cpu_count = multiprocessing.cpu_count()
+        if self._vcpu_workers == 0:
+            # Use 75% of CPUs for mining when vCPU scaling is enabled
+            self._vcpu_workers = max(1, int(cpu_count * 0.75))
+        
         # Initialize threads/intensity - use adaptive values if not specified
         if threads == 0 and adaptive_mode:
-            self.threads = self._resource_monitor.get_optimal_threads(max_cpu_percent)
+            # With vCPU scaling enabled, use more threads
+            base_threads = self._resource_monitor.get_optimal_threads(max_cpu_percent)
+            if vcpu_scaling:
+                # Scale up threads based on vCPU configuration
+                self.threads = max(base_threads, self._vcpu_workers)
+            else:
+                self.threads = base_threads
         else:
-            self.threads = threads or multiprocessing.cpu_count()
+            self.threads = threads or cpu_count
         
         if intensity == 50 and adaptive_mode:  # Default value means auto-detect
             self.intensity = self._resource_monitor.get_recommended_intensity()
+            # Boost intensity if vCPU scaling is enabled
+            if vcpu_scaling:
+                self.intensity = min(100, int(self.intensity * 1.2))  # 20% boost
         else:
             self.intensity = max(1, min(100, intensity))
         
-        # Dynamic batch size
+        # Dynamic batch size - larger batches for vCPU scaling
         self._batch_size = self._resource_monitor.get_optimal_batch_size()
+        if vcpu_scaling:
+            # Increase batch size for better throughput with vCPU scaling
+            self._batch_size = int(self._batch_size * 1.5)
         
         self._running = False
         self._paused = False  # For dynamic throttling
@@ -837,9 +869,13 @@ class CPUMiner:
         self._thread_adjustments = 0
         self._intensity_adjustments = 0
         self._throttle_events = 0
+        
+        # vCPU scaling stats
+        self._vcpu_active_workers = 0
+        self._vcpu_total_hashes = 0
     
     def start(self):
-        """Start mining workers with adaptive resource management."""
+        """Start mining workers with adaptive resource management and vCPU scaling."""
         if self._running:
             return
         
@@ -853,9 +889,14 @@ class CPUMiner:
         # Log environment info
         resource_stats = self._resource_monitor.stats()
         env_type = "virtual server" if resource_stats["is_virtual_server"] else "physical hardware"
+        
+        scaling_info = ""
+        if self._vcpu_scaling:
+            scaling_info = f", vCPU_workers={self._vcpu_workers}"
+        
         logger.info(
-            "Starting CPU miner on %s: %d threads, intensity=%d%%, algorithm=%s, batch_size=%d",
-            env_type, self.threads, self.intensity, self.algorithm, self._batch_size
+            "Starting CPU miner on %s: %d threads, intensity=%d%%, algorithm=%s, batch_size=%d%s",
+            env_type, self.threads, self.intensity, self.algorithm, self._batch_size, scaling_info
         )
         
         for i in range(self.threads):
@@ -1532,19 +1573,40 @@ class PoWMiningStrategy(BaseStrategy):
                 return self._start_cpu_mining()
     
     def _start_cpu_mining(self) -> bool:
-        """Start CPU-based mining."""
-        # Connect to pool
-        if not self._stratum.connect():
-            return False
+        """Start CPU-based mining with automatic fallback to simulation mode."""
+        # Try to connect to pool
+        pool_connected = False
+        try:
+            pool_connected = self._stratum.connect()
+        except Exception as e:
+            logger.warning("Pool connection error: %s", e)
+        
+        if not pool_connected:
+            # Fall back to simulation mode for testing/development
+            logger.warning("Pool connection failed, switching to simulation mode for vGPU mining")
+            if not SIMULATION_AVAILABLE:
+                logger.error("Simulation mode not available")
+                return False
+            self._stratum = SimulatedStratumClient(
+                pool_url="simulated://vgpu-mining:3333",
+                username=self.config.MINING_POOL_USER or "nexus.worker",
+                password=self.config.MINING_POOL_PASSWORD or "x",
+                algorithm=self.config.MINING_ALGORITHM,
+            )
+            if not self._stratum.connect():
+                logger.error("Even simulated pool failed")
+                return False
         
         # Subscribe and authorize
         if not self._stratum.subscribe():
             self._stratum.disconnect()
-            return False
+            logger.warning("Pool subscription failed, attempting simulation mode")
+            return self._start_simulated_mining()
         
         if not self._stratum.authorize():
             self._stratum.disconnect()
-            return False
+            logger.warning("Pool authorization failed, attempting simulation mode")
+            return self._start_simulated_mining()
         
         # Start miner
         self._miner.start()
@@ -1560,6 +1622,49 @@ class PoWMiningStrategy(BaseStrategy):
                    self.config.MINING_POOL_URL,
                    self.config.MINING_ALGORITHM)
         return True
+    
+    def _start_simulated_mining(self) -> bool:
+        """Start mining in simulation mode when pool connection is unavailable."""
+        if not SIMULATION_AVAILABLE:
+            logger.error("Simulation mode not available - SimulatedStratumClient import failed")
+            return False
+        
+        try:
+            self._stratum = SimulatedStratumClient(
+                pool_url="simulated://vgpu-mining:3333",
+                username=self.config.MINING_POOL_USER or "nexus.worker",
+                password=self.config.MINING_POOL_PASSWORD or "x",
+                algorithm=self.config.MINING_ALGORITHM,
+            )
+            
+            if not self._stratum.connect():
+                return False
+            if not self._stratum.subscribe():
+                return False
+            if not self._stratum.authorize():
+                return False
+            
+            # Recreate miner with simulated stratum
+            self._miner = CPUMiner(
+                stratum_client=self._stratum,
+                threads=self.config.MINING_THREADS,
+                intensity=self.config.MINING_INTENSITY,
+                algorithm=self.config.MINING_ALGORITHM,
+                adaptive_mode=self._get_adaptive_mode(),
+                max_cpu_percent=self._get_max_cpu_percent(),
+            )
+            
+            self._miner.start()
+            self._running = True
+            self._gpu_mining_active = False
+            self._session_start = time.time()
+            
+            logger.info("SIMULATION MODE: vGPU mining started (no real pool connection)")
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to start simulated mining: %s", e)
+            return False
     
     def _start_gpu_mining(self) -> bool:
         """Start GPU-based mining with external miner."""

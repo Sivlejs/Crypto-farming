@@ -108,9 +108,12 @@ class Config:
 
     # ── PoW Mining settings ───────────────────────────────────
     # Mining pool URL (Stratum protocol) - default to 2Miners ETC pool for live operation
-    MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "stratum+tcp://pool.2miners.com:2020")
-    # Mining pool username/worker name
-    MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", "")
+    MINING_POOL_URL: str = os.getenv("MINING_POOL_URL", "stratum+tcp://etc.2miners.com:1010")
+    # Mining pool username/worker name - auto-generates a default worker if not set
+    # Format: wallet_address.worker_name or just worker_name for pool registration
+    _wallet_env = os.getenv("WALLET_ADDRESS", "")
+    _default_worker = _wallet_env if _wallet_env else "0x0000000000000000000000000000000000000000"
+    MINING_POOL_USER: str = os.getenv("MINING_POOL_USER", f"{_default_worker}.nexus_worker")
     # Mining pool password (usually 'x' or empty)
     MINING_POOL_PASSWORD: str = os.getenv("MINING_POOL_PASSWORD", "x")
     # Mining algorithm: etchash recommended for GPU mining (ETC is profitable)
@@ -150,10 +153,26 @@ class Config:
     # ── Virtual GPU (vGPU) Settings ───────────────────────────
     # Enable virtual GPU simulation for cloud environments without physical GPUs
     MINING_VGPU_ENABLED: bool = _bool("MINING_VGPU_ENABLED", True)
-    # Number of virtual GPU devices to create
-    MINING_VGPU_COUNT: int = _int("MINING_VGPU_COUNT", 1)
-    # Simulated memory per vGPU device (MB)
-    MINING_VGPU_MEMORY_MB: int = _int("MINING_VGPU_MEMORY_MB", 4096)
+    # Number of virtual GPU devices to create (increase for more mining power)
+    # Each vGPU provides additional parallel mining capacity
+    MINING_VGPU_COUNT: int = _int("MINING_VGPU_COUNT", 4)
+    # Simulated memory per vGPU device (MB) - higher = better for memory-hard algorithms
+    MINING_VGPU_MEMORY_MB: int = _int("MINING_VGPU_MEMORY_MB", 8192)
+    # vGPU compute multiplier - simulates GPU acceleration factor over CPU
+    MINING_VGPU_COMPUTE_MULTIPLIER: float = _float("MINING_VGPU_COMPUTE_MULTIPLIER", 10.0)
+    
+    # ── Virtual CPU Scaling Settings ───────────────────────────
+    # Enable virtual CPU scaling for increased mining throughput
+    MINING_VCPU_SCALING_ENABLED: bool = _bool("MINING_VCPU_SCALING_ENABLED", True)
+    # Number of virtual CPU workers to spawn (multiplies effective CPU power)
+    # Set to 0 for auto-detect based on available CPU cores
+    MINING_VCPU_WORKERS: int = _int("MINING_VCPU_WORKERS", 0)
+    # Maximum CPU usage per worker (percent) - prevents system overload
+    MINING_VCPU_MAX_USAGE: float = _float("MINING_VCPU_MAX_USAGE", 95.0)
+    # Enable CPU affinity optimization for better cache utilization
+    MINING_CPU_AFFINITY: bool = _bool("MINING_CPU_AFFINITY", True)
+    # Enable NUMA-aware scheduling for multi-socket systems
+    MINING_NUMA_AWARE: bool = _bool("MINING_NUMA_AWARE", True)
 
     # ── Speed / MEV settings ──────────────────────────────────
 
@@ -276,6 +295,21 @@ class Config:
                     "expected_hashrate_mhs": cls.MINING_EXPECTED_HASHRATE_MHS,
                     "power_watts": cls.MINING_GPU_POWER_WATTS,
                     "electricity_cost_kwh": cls.MINING_ELECTRICITY_COST_KWH,
+                },
+                # Virtual GPU configuration
+                "vgpu": {
+                    "enabled": cls.MINING_VGPU_ENABLED,
+                    "count": cls.MINING_VGPU_COUNT,
+                    "memory_mb": cls.MINING_VGPU_MEMORY_MB,
+                    "compute_multiplier": cls.MINING_VGPU_COMPUTE_MULTIPLIER,
+                },
+                # Virtual CPU scaling configuration
+                "vcpu": {
+                    "scaling_enabled": cls.MINING_VCPU_SCALING_ENABLED,
+                    "workers": cls.MINING_VCPU_WORKERS or "auto",
+                    "max_usage_percent": cls.MINING_VCPU_MAX_USAGE,
+                    "cpu_affinity": cls.MINING_CPU_AFFINITY,
+                    "numa_aware": cls.MINING_NUMA_AWARE,
                 },
                 "profit_switching": {
                     "enabled": cls.MINING_PROFIT_SWITCHING,

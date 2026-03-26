@@ -1994,13 +1994,14 @@ async function toggleVGPU(enabled) {
 
 async function applyVGPUConfig() {
   try {
-    const count = parseInt($('vgpu-count-select')?.value || '1');
-    const memory = parseInt($('vgpu-memory-select')?.value || '4096');
+    const count = parseInt($('vgpu-count-select')?.value || '4');
+    const memory = parseInt($('vgpu-memory-select')?.value || '8192');
+    const multiplier = parseFloat($('vgpu-multiplier-select')?.value || '10');
     
     const resp = await fetch('/api/mining/vgpu/enable', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ count: count, memory_mb: memory })
+      body: JSON.stringify({ count: count, memory_mb: memory, compute_multiplier: multiplier })
     });
     const data = await resp.json();
     
@@ -2009,8 +2010,10 @@ async function applyVGPUConfig() {
       return;
     }
     
-    toast(`Applied vGPU config: ${count} device(s) with ${memory}MB each`, 'success');
+    const totalMemory = count * memory / 1024;
+    toast(`⚡ Applied vGPU config: ${count} devices × ${memory/1024}GB = ${totalMemory}GB total`, 'success');
     loadVGPUStatus();
+    loadMiningResources();
     loadMiningStatus();
   } catch(e) {
     console.error('Failed to apply vGPU config:', e);
@@ -2037,6 +2040,168 @@ async function switchMiningCoin(coin) {
   } catch(e) {
     console.error('Failed to switch coin:', e);
   }
+}
+
+// ════════════════════════════════════════════════════════════════
+// vGPU & vCPU Control Functions
+// ════════════════════════════════════════════════════════════════
+
+async function loadMiningResources() {
+  try {
+    const resp = await fetch('/api/mining/resources');
+    const data = await resp.json();
+    
+    if (data.error) {
+      console.error('Failed to load resources:', data.error);
+      return;
+    }
+    
+    // Update vGPU stats
+    setText('vgpu-count', data.vgpu?.count || 0);
+    setText('vgpu-total-memory', `${Math.round((data.vgpu?.total_memory_mb || 0) / 1024)} GB`);
+    setText('vgpu-compute-units', data.vgpu?.total_compute_units || 0);
+    
+    // Update vCPU stats
+    setText('vcpu-total', data.vcpu?.total_cpus || 0);
+    setText('vcpu-workers', data.vcpu?.active_workers || 0);
+    setText('vcpu-usage', `${Math.round(data.vcpu?.current_usage_percent || 0)}%`);
+    
+    // Update usage bar
+    const usageBar = $('vcpu-usage-bar');
+    const usageLabel = $('vcpu-usage-label');
+    if (usageBar) {
+      const usage = data.vcpu?.current_usage_percent || 0;
+      const maxUsage = data.vcpu?.max_usage_percent || 95;
+      usageBar.style.width = `${Math.min(usage, 100)}%`;
+      if (usageLabel) usageLabel.textContent = `${Math.round(usage)}% / ${maxUsage}% max`;
+    }
+    
+    // Update total resources
+    setText('total-vgpu-power', `${data.compute_power?.vgpu_units || 0} units`);
+    setText('total-vcpu-workers', `${data.compute_power?.vcpu_workers || 0} workers`);
+    setText('total-memory', `${Math.round((data.vgpu?.total_memory_mb || 0) / 1024)} GB`);
+    setText('total-compute-score', data.compute_power?.total_score || 0);
+    
+    // Update vGPU device cards
+    renderVGPUDevices(data.vgpu?.devices || []);
+    
+  } catch(e) {
+    console.error('Failed to load mining resources:', e);
+  }
+}
+
+function renderVGPUDevices(devices) {
+  const container = $('vgpu-devices-grid');
+  if (!container) return;
+  
+  if (!devices || devices.length === 0) {
+    container.innerHTML = '<div class="gpu-device-placeholder">No vGPU devices active</div>';
+    return;
+  }
+  
+  container.innerHTML = devices.map((d, i) => `
+    <div class="vgpu-device-card">
+      <div class="device-name">🖥️ vGPU-${i}</div>
+      <div class="device-stats">
+        <div class="device-stat">
+          <span>Memory:</span>
+          <span class="stat-value">${Math.round(d.memory_mb / 1024)} GB</span>
+        </div>
+        <div class="device-stat">
+          <span>Compute:</span>
+          <span class="stat-value">${d.compute_units} units</span>
+        </div>
+        <div class="device-stat">
+          <span>Status:</span>
+          <span class="stat-value" style="color:var(--green)">Active</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function toggleVCPU(enabled) {
+  try {
+    const resp = await fetch('/api/mining/vcpu/configure', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ scaling_enabled: enabled })
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      toast(data.error, 'error');
+      const toggle = $('vcpu-toggle');
+      if (toggle) toggle.checked = !enabled;
+      return;
+    }
+    
+    const statusEl = $('vcpu-status');
+    if (statusEl) {
+      statusEl.textContent = enabled ? 'Active' : 'Disabled';
+      statusEl.className = `status-value badge badge-${enabled ? 'green' : 'dim'}`;
+    }
+    
+    toast(enabled ? 'vCPU scaling enabled' : 'vCPU scaling disabled', 'success');
+    loadMiningResources();
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to toggle vCPU:', e);
+    toast('Failed to toggle vCPU scaling', 'error');
+  }
+}
+
+async function applyVCPUConfig() {
+  try {
+    const workers = parseInt($('vcpu-workers-select')?.value || '0');
+    const maxUsage = parseFloat($('vcpu-max-usage')?.value || '95');
+    
+    const resp = await fetch('/api/mining/vcpu/configure', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        workers: workers,
+        max_usage: maxUsage,
+        scaling_enabled: true
+      })
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      toast(data.error, 'error');
+      return;
+    }
+    
+    toast(`vCPU config applied: ${workers === 0 ? 'Auto' : workers} workers, ${maxUsage}% max`, 'success');
+    loadMiningResources();
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to apply vCPU config:', e);
+    toast('Failed to apply vCPU config', 'error');
+  }
+}
+
+function previewVGPUConfig() {
+  const count = parseInt($('vgpu-count-select')?.value || '4');
+  const memory = parseInt($('vgpu-memory-select')?.value || '8192');
+  const multiplier = parseFloat($('vgpu-multiplier-select')?.value || '10');
+  
+  const totalMemory = count * memory / 1024;
+  const computeUnits = Math.round(count * 40 * multiplier);
+  
+  const preview = $('vgpu-config-preview');
+  if (preview) {
+    preview.innerHTML = `<span>Preview: ${count} vGPUs × ${memory/1024} GB = ${totalMemory} GB total, ~${computeUnits} compute units</span>`;
+  }
+}
+
+function previewVCPUConfig() {
+  const workers = $('vcpu-workers-select')?.value || '0';
+  const maxUsage = $('vcpu-max-usage')?.value || '95';
+  const affinity = $('vcpu-affinity')?.checked;
+  const numa = $('vcpu-numa')?.checked;
+  
+  console.log(`vCPU Preview: ${workers === '0' ? 'Auto' : workers} workers, ${maxUsage}% max, affinity=${affinity}, numa=${numa}`);
 }
 
 function updateKPI(id, value) {
@@ -2105,6 +2270,10 @@ async function updateMiningIntensity(intensity) {
 function startMiningRefresh() {
   if (_miningRefreshInterval) return;
   _miningRefreshInterval = setInterval(loadMiningStatus, 5000); // Every 5 seconds
+  // Also load resources periodically
+  setInterval(loadMiningResources, 10000); // Every 10 seconds
+  // Initial load
+  loadMiningResources();
 }
 
 function stopMiningRefresh() {
