@@ -24,14 +24,17 @@ Virtual Server & Cloud GPU Optimizations:
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import multiprocessing
 import os
 import socket
 import struct
+import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -97,6 +100,36 @@ except ImportError:
 
 
 logger = get_logger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Thread Safety Utilities
+# ══════════════════════════════════════════════════════════════════════════════
+
+def safe_thread_target(func: Callable) -> Callable:
+    """
+    Decorator that wraps thread target functions to catch all exceptions.
+    
+    This prevents uncaught exceptions in daemon threads from crashing the
+    main process, especially important when running under eventlet/gunicorn
+    where native threads can interact poorly with patched sockets.
+    
+    The decorator logs any exceptions and allows the thread to exit gracefully.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except SystemExit:
+            # Allow normal thread exit
+            pass
+        except Exception:
+            logger.error(
+                "Unhandled exception in thread '%s':\n%s",
+                threading.current_thread().name,
+                traceback.format_exc()
+            )
+    return wrapper
 
 
 # ══════════════════════════════════════════════════════════════════════════════
