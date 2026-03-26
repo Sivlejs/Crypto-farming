@@ -95,13 +95,14 @@ class Config:
     LIGHTNING_NODE_MACAROON: str = os.getenv("LIGHTNING_NODE_MACAROON", "")  # LND
     LIGHTNING_NODE_API_KEY: str = os.getenv("LIGHTNING_NODE_API_KEY", "")   # LNbits
 
-    # Enabled strategies
-    STRATEGY_ARBITRAGE: bool = _bool("STRATEGY_ARBITRAGE", True)
-    STRATEGY_YIELD_FARMING: bool = _bool("STRATEGY_YIELD_FARMING", True)
-    STRATEGY_LIQUIDITY_MINING: bool = _bool("STRATEGY_LIQUIDITY_MINING", True)
-    STRATEGY_LIQUIDATION: bool = _bool("STRATEGY_LIQUIDATION", True)
-    # PoW Mining enabled by default for GPU mining operations
-    STRATEGY_POW_MINING: bool = _bool("STRATEGY_POW_MINING", True)
+    # Enabled strategies - PoW Mining only (other strategies removed for focus)
+    # Legacy flags kept for compatibility but disabled
+    STRATEGY_ARBITRAGE: bool = False
+    STRATEGY_YIELD_FARMING: bool = False
+    STRATEGY_LIQUIDITY_MINING: bool = False
+    STRATEGY_LIQUIDATION: bool = False
+    # PoW Mining - always enabled (this is the core functionality)
+    STRATEGY_POW_MINING: bool = True
 
     # ── PoW Mining settings ───────────────────────────────────
     # Mining pool URL (Stratum protocol) - default to 2Miners ETC pool for live operation

@@ -14,12 +14,14 @@ The system can operate in two modes:
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import random
 import socket
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -31,6 +33,26 @@ import requests
 from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _safe_thread_target(func: Callable) -> Callable:
+    """
+    Decorator that wraps thread target functions to catch all exceptions.
+    Prevents uncaught exceptions from crashing the main process.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except SystemExit:
+            pass
+        except Exception:
+            logger.error(
+                "Unhandled exception in thread '%s':\n%s",
+                threading.current_thread().name,
+                traceback.format_exc()
+            )
+    return wrapper
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -678,6 +700,7 @@ class MiningPoolDiscovery:
             self._update_thread.join(timeout=5)
         logger.info("Pool discovery service stopped")
     
+    @_safe_thread_target
     def _update_loop(self):
         """Background loop for pool updates."""
         while self._running:

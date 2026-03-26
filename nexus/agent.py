@@ -31,20 +31,19 @@ from nexus.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Strategy urgency classification for trade deferral
-_URGENT_STRATEGIES = {"flash_arbitrage", "arbitrage", "liquidation"}
-_DEFERRABLE_STRATEGIES = {"yield_farming", "liquidity_mining", "staking"}
+# PoW mining is always high-priority (continuous operation)
+_URGENT_STRATEGIES = {"pow_mining"}
+_DEFERRABLE_STRATEGIES = set()  # Nothing is deferrable for mining
 
 
 class NexusAgent:
     """
-    Nexus AI – autonomous crypto farming agent.
+    Nexus AI – Proof-of-Work Mining Agent.
 
-    Flow:
-      1. BlockchainManager connects to enabled chains.
-      2. OpportunityMonitor scans for opportunities.
-      3. For each profitable opportunity, TransactionExecutor executes it.
-      4. RewardTracker records all outcomes.
+    Focused on PoW mining operations:
+      1. BlockchainManager provides network connectivity (for payouts/monitoring)
+      2. OpportunityMonitor tracks mining performance
+      3. RewardTracker records mining rewards
     """
 
     def __init__(self):
