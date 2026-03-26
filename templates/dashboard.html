@@ -318,6 +318,51 @@
           </div>
         </div>
         
+        <!-- Virtual GPU (vGPU) Section -->
+        <div class="vgpu-section" id="vgpu-section">
+          <div class="section-header">
+            <span>🖥️ Virtual GPU (vGPU)</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="vgpu-toggle" onchange="toggleVGPU(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="vgpu-status-row">
+            <div class="vgpu-status-item">
+              <span class="status-label">vGPU Status:</span>
+              <span id="vgpu-status" class="status-value badge badge-dim">Disabled</span>
+            </div>
+            <div class="vgpu-status-item">
+              <span class="status-label">vGPU Devices:</span>
+              <span id="vgpu-count" class="status-value">0</span>
+            </div>
+            <div class="vgpu-status-item">
+              <span class="status-label">Cloud Provider:</span>
+              <span id="vgpu-provider" class="status-value badge badge-dim">–</span>
+            </div>
+          </div>
+          <div class="vgpu-config" id="vgpu-config" style="display:none;">
+            <div class="config-row">
+              <label>vGPU Count:</label>
+              <select id="vgpu-count-select">
+                <option value="1">1 vGPU</option>
+                <option value="2">2 vGPUs</option>
+                <option value="4">4 vGPUs</option>
+              </select>
+            </div>
+            <div class="config-row">
+              <label>Memory per vGPU:</label>
+              <select id="vgpu-memory-select">
+                <option value="2048">2 GB</option>
+                <option value="4096" selected>4 GB</option>
+                <option value="8192">8 GB</option>
+              </select>
+            </div>
+            <button class="btn btn-sm btn-green" onclick="applyVGPUConfig()">Apply</button>
+          </div>
+          <p class="vgpu-info">💡 Virtual GPUs enable GPU-like mining in cloud environments without physical GPU hardware.</p>
+        </div>
+        
         <!-- GPU Devices List -->
         <div id="gpu-devices-list" class="gpu-devices">
           <div class="gpu-device-placeholder">No GPUs detected. GPU mining will use CPU fallback.</div>

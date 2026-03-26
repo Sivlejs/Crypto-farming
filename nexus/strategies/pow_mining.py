@@ -1827,10 +1827,7 @@ class PoWMiningStrategy(BaseStrategy):
                     "active": self._gpu_mining_active,
                     "devices": gpu_devices,
                     "external_miner_stats": gpu_stats,
-                    "available_miners": (
-                        [m.value for m in self._external_miner.available_miners]
-                        if self._external_miner else []
-                    ),
+                    "available_miners": self._get_available_miners_list(),
                 },
                 # Profit switching info
                 "profit_switching": {
@@ -1844,7 +1841,52 @@ class PoWMiningStrategy(BaseStrategy):
                     "enabled": len(pools) > 1,
                     "pools": pools,
                 },
+                # Pool discovery info
+                "pool_discovery": self._get_pool_discovery_status(),
             }
+    
+    # ── Helper Methods for Status Reporting ─────────────────────────────────────
+    
+    def _get_available_miners_list(self) -> list[str]:
+        """Get list of available mining software including built-in CPU miner."""
+        miners = []
+        
+        # Always include built-in CPU miner
+        miners.append("cpu_builtin")
+        
+        # Add external miners if available
+        if self._external_miner:
+            for m in self._external_miner.available_miners:
+                miners.append(m.value)
+        
+        return miners
+    
+    def _get_pool_discovery_status(self) -> dict:
+        """Get status of pool discovery service."""
+        try:
+            if self._pool_discovery:
+                stats = self._pool_discovery.get_stats()
+                return {
+                    "active": self._pool_discovery._running,
+                    "total_pools": stats.get("total_pools", 0),
+                    "online_pools": stats.get("online_pools", 0),
+                    "algorithms": stats.get("algorithms", []),
+                    "coins": stats.get("coins", []),
+                    "auto_select_enabled": stats.get("auto_select_enabled", False),
+                    "selected_pool": stats.get("selected_pool"),
+                }
+        except Exception as e:
+            logger.debug("Error getting pool discovery status: %s", e)
+        
+        return {
+            "active": False,
+            "total_pools": 0,
+            "online_pools": 0,
+            "algorithms": [],
+            "coins": [],
+            "auto_select_enabled": False,
+            "selected_pool": None,
+        }
     
     # ── GPU Mining Control Methods ────────────────────────────────────────────
     

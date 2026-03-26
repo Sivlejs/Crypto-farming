@@ -35,6 +35,16 @@ logger = get_logger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Constants
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Base device ID for virtual GPU devices - IDs >= this value are vGPUs
+VGPU_DEVICE_ID_BASE = 1000
+
+# Maximum number of vGPU devices that can be created
+VGPU_MAX_COUNT = 8
+
+# ══════════════════════════════════════════════════════════════════════════════
 # GPU Device Detection and Management
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -104,18 +114,26 @@ class GPUDetector:
     - AMD GPUs via rocm-smi or AMD ADL
     - Intel GPUs via SYCL
     - Cloud GPU instances (AWS, GCP, Azure)
+    - Virtual GPU (vGPU) simulation for cloud environments without physical GPU
     """
     
     def __init__(self):
         self._devices: list[GPUDevice] = []
+        self._vgpu_devices: list[GPUDevice] = []  # Virtual GPU devices
         self._lock = threading.Lock()
         self._last_detection = 0.0
         self._detection_interval = 60.0  # Re-detect every minute
+        self._vgpu_enabled = os.getenv("MINING_VGPU_ENABLED", "true").lower() in ("1", "true", "yes")
+        self._vgpu_count = int(os.getenv("MINING_VGPU_COUNT", "1"))
+        self._vgpu_memory_mb = int(os.getenv("MINING_VGPU_MEMORY_MB", "4096"))
         
         # Platform detection
         self._has_nvidia_smi = self._check_command("nvidia-smi")
         self._has_rocm_smi = self._check_command("rocm-smi")
         self._is_cloud = self._detect_cloud_environment()
+        
+        # Initialize vGPU devices if in cloud environment and no physical GPUs
+        self._init_vgpu_devices()
     
     def _check_command(self, cmd: str) -> bool:
         """Check if a command is available."""
@@ -158,8 +176,69 @@ class GPUDetector:
         
         return env
     
+    def _init_vgpu_devices(self):
+        """Initialize virtual GPU devices for cloud environments."""
+        if not self._vgpu_enabled:
+            return
+        
+        # Create vGPU devices based on configuration
+        for i in range(self._vgpu_count):
+            vgpu = GPUDevice(
+                device_id=VGPU_DEVICE_ID_BASE + i,  # Use high IDs to distinguish from physical GPUs
+                name=f"vGPU-{i} (Virtual Mining Accelerator)",
+                vendor=GPUVendor.NVIDIA,  # Virtual devices simulate NVIDIA for compatibility
+                memory_mb=self._vgpu_memory_mb,
+                compute_units=64,  # Simulated compute units
+                driver_version="vGPU-1.0",
+                temperature=45.0,  # Simulated idle temp
+                power_usage_watts=0.0,  # No physical power usage
+                fan_speed_percent=0.0,
+                hashrate=0.0,
+                is_available=True,
+                pci_bus=f"vgpu:{i}",
+            )
+            self._vgpu_devices.append(vgpu)
+        
+        if self._vgpu_devices:
+            logger.info("Initialized %d virtual GPU device(s) for cloud mining", len(self._vgpu_devices))
+    
+    def enable_vgpu(self, count: int = 1, memory_mb: int = 4096) -> list[GPUDevice]:
+        """
+        Enable virtual GPU devices for mining.
+        
+        Args:
+            count: Number of vGPU devices to create
+            memory_mb: Simulated memory per vGPU device
+            
+        Returns:
+            List of created vGPU devices
+        """
+        with self._lock:
+            self._vgpu_enabled = True
+            self._vgpu_count = count
+            self._vgpu_memory_mb = memory_mb
+            self._vgpu_devices.clear()
+            self._init_vgpu_devices()
+            return self._vgpu_devices.copy()
+    
+    def disable_vgpu(self):
+        """Disable virtual GPU devices."""
+        with self._lock:
+            self._vgpu_enabled = False
+            self._vgpu_devices.clear()
+            logger.info("Virtual GPU devices disabled")
+    
+    def get_vgpu_devices(self) -> list[GPUDevice]:
+        """Get list of virtual GPU devices."""
+        with self._lock:
+            return self._vgpu_devices.copy()
+    
+    def is_vgpu_enabled(self) -> bool:
+        """Check if vGPU is enabled."""
+        return self._vgpu_enabled
+    
     def detect_devices(self) -> list[GPUDevice]:
-        """Detect all available GPU devices."""
+        """Detect all available GPU devices including virtual GPUs."""
         now = time.time()
         
         with self._lock:
@@ -180,14 +259,21 @@ class GPUDetector:
             if not self._devices:
                 self._detect_opencl_devices()
             
+            # If still no physical GPUs found and vGPU is enabled, add virtual GPUs
+            if not self._devices and self._vgpu_enabled and self._vgpu_devices:
+                self._devices.extend(self._vgpu_devices)
+                logger.info("Using %d virtual GPU device(s) for mining", len(self._vgpu_devices))
+            
             self._last_detection = now
             
             if self._devices:
                 logger.info("Detected %d GPU device(s):", len(self._devices))
                 for dev in self._devices:
+                    is_vgpu = dev.device_id >= 1000
                     logger.info(
-                        "  [%d] %s (%s) - %d MB VRAM",
-                        dev.device_id, dev.name, dev.vendor.value, dev.memory_mb
+                        "  [%d] %s (%s) - %d MB VRAM%s",
+                        dev.device_id, dev.name, dev.vendor.value, dev.memory_mb,
+                        " [vGPU]" if is_vgpu else ""
                     )
             else:
                 logger.info("No GPU devices detected. CPU mining will be used.")

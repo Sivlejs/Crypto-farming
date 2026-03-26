@@ -67,6 +67,12 @@ services:
         value: "3.11.0"
       - key: SERVICE_ROLE
         value: "worker"
+      - key: MINING_VGPU_ENABLED
+        value: "true"
+      - key: MINING_VGPU_COUNT
+        value: "1"
+      - key: MINING_VGPU_MEMORY_MB
+        value: "4096"
       - key: REDIS_URL
         fromService:
           name: nexus-ai-redis
