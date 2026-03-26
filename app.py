@@ -563,6 +563,71 @@ def api_mining_gpu_devices():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/mining/vgpu/status")
+def api_mining_vgpu_status():
+    """Get virtual GPU status and configuration."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        
+        detector = get_gpu_detector()
+        vgpu_devices = detector.get_vgpu_devices()
+        
+        return jsonify({
+            "ok": True,
+            "enabled": detector.is_vgpu_enabled(),
+            "devices": [d.to_dict() for d in vgpu_devices],
+            "count": len(vgpu_devices),
+            "cloud_info": detector.cloud_info,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/vgpu/enable", methods=["POST"])
+def api_mining_vgpu_enable():
+    """Enable virtual GPU devices for mining."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        
+        data = request.get_json(force=True) or {}
+        count = int(data.get("count", 1))
+        memory_mb = int(data.get("memory_mb", 4096))
+        
+        # Validate parameters
+        if count < 1 or count > 8:
+            return jsonify({"error": "vGPU count must be between 1 and 8"}), 400
+        if memory_mb < 1024 or memory_mb > 32768:
+            return jsonify({"error": "vGPU memory must be between 1024 and 32768 MB"}), 400
+        
+        detector = get_gpu_detector()
+        devices = detector.enable_vgpu(count=count, memory_mb=memory_mb)
+        
+        return jsonify({
+            "ok": True,
+            "message": f"Enabled {len(devices)} virtual GPU device(s)",
+            "devices": [d.to_dict() for d in devices],
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/vgpu/disable", methods=["POST"])
+def api_mining_vgpu_disable():
+    """Disable virtual GPU devices."""
+    try:
+        from nexus.strategies.gpu_mining import get_gpu_detector
+        
+        detector = get_gpu_detector()
+        detector.disable_vgpu()
+        
+        return jsonify({
+            "ok": True,
+            "message": "Virtual GPU devices disabled",
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/api/mining/profitability")
 def api_mining_profitability():
     """Get coin profitability data for profit switching."""

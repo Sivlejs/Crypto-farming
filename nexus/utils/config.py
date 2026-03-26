@@ -143,6 +143,14 @@ class Config:
     MINING_PROFIT_SWITCH_THRESHOLD: float = _float("MINING_PROFIT_SWITCH_THRESHOLD", 5.0)
     # Enable AI-powered mining optimization for maximum efficiency
     MINING_AI_OPTIMIZATION: bool = _bool("MINING_AI_OPTIMIZATION", True)
+    
+    # ── Virtual GPU (vGPU) Settings ───────────────────────────
+    # Enable virtual GPU simulation for cloud environments without physical GPUs
+    MINING_VGPU_ENABLED: bool = _bool("MINING_VGPU_ENABLED", True)
+    # Number of virtual GPU devices to create
+    MINING_VGPU_COUNT: int = _int("MINING_VGPU_COUNT", 1)
+    # Simulated memory per vGPU device (MB)
+    MINING_VGPU_MEMORY_MB: int = _int("MINING_VGPU_MEMORY_MB", 4096)
 
     # ── Speed / MEV settings ──────────────────────────────────
 

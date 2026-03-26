@@ -618,6 +618,14 @@ body{display:flex;min-height:100vh}
 .gpu-stat.temp-high .gpu-stat-value{color:var(--orange)}
 .gpu-stat.temp-critical .gpu-stat-value{color:var(--red)}
 
+/* vGPU specific styles */
+.vgpu-device{border:1px solid rgba(0,212,255,.3)}
+.vgpu-badge{
+  font-size:.65rem;background:rgba(0,212,255,.2);color:var(--accent);
+  padding:.1rem .3rem;border-radius:3px;margin-left:.4rem;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+
 /* Profit Switching Section */
 .profit-switching-section{
   margin-top:1rem;padding:1rem;background:var(--bg3);border-radius:8px;
@@ -638,6 +646,34 @@ body{display:flex;min-height:100vh}
 }
 input:checked + .toggle-slider{background-color:var(--green)}
 input:checked + .toggle-slider:before{transform:translateX(20px);background-color:#fff}
+
+/* Virtual GPU (vGPU) Section */
+.vgpu-section{
+  margin-top:1rem;padding:1rem;background:var(--bg3);border-radius:8px;
+  border:1px solid rgba(0,212,255,.2);
+}
+.vgpu-status-row{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:.6rem;
+}
+.vgpu-status-item{
+  display:flex;flex-direction:column;gap:.2rem;
+}
+.vgpu-config{
+  margin-top:.8rem;padding:.6rem;background:var(--bg2);border-radius:6px;
+  display:flex;gap:1rem;align-items:center;flex-wrap:wrap;
+}
+.vgpu-config .config-row{
+  display:flex;align-items:center;gap:.5rem;font-size:.85rem;
+}
+.vgpu-config select{
+  padding:.3rem .5rem;background:var(--bg4);border:1px solid var(--accent);
+  border-radius:4px;color:var(--text);font-size:.85rem;
+}
+.vgpu-info{
+  margin-top:.6rem;font-size:.8rem;color:var(--text-mid);
+  background:rgba(0,212,255,.08);padding:.5rem .8rem;border-radius:4px;
+}
+.badge-accent{background:rgba(0,212,255,.15)!important;color:var(--accent)!important}
 
 .profitability-grid{margin-top:.6rem}
 .profit-row{

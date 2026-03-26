@@ -1789,9 +1789,12 @@ function renderGPUMining(data) {
   if (minersEl) {
     const miners = gpuMining.available_miners || [];
     if (miners.length > 0) {
-      minersEl.innerHTML = miners.map(m => 
-        `<span class="badge badge-available">${m}</span>`
-      ).join('');
+      minersEl.innerHTML = miners.map(m => {
+        // Show friendly name for built-in CPU miner
+        const displayName = m === 'cpu_builtin' ? 'Built-in CPU' : m;
+        const badgeClass = m === 'cpu_builtin' ? 'badge-green' : 'badge-available';
+        return `<span class="badge ${badgeClass}" title="${m === 'cpu_builtin' ? 'Built-in CPU miner for SHA256, Scrypt, and other algorithms' : m}">${displayName}</span>`;
+      }).join('');
     } else {
       minersEl.innerHTML = '<span class="badge badge-dim">None installed</span>';
     }
@@ -1840,11 +1843,17 @@ function renderGPUDevice(dev) {
   const tempClass = dev.temperature_c > 85 ? 'temp-critical' : (dev.temperature_c > 75 ? 'temp-high' : '');
   const vendorLower = (dev.vendor || '').toLowerCase();
   
+  // Check if this is a vGPU device
+  const isVGPU = dev.device_id >= 1000 || dev.pci_bus?.startsWith('vgpu:');
+  const vendorBadgeClass = isVGPU ? 'badge-accent' : (vendorLower === 'nvidia' ? 'badge-green' : 'badge-orange');
+  const vendorText = isVGPU ? 'vGPU' : (dev.vendor || 'Unknown').toUpperCase();
+  
   return `
-    <div class="gpu-device">
+    <div class="gpu-device ${isVGPU ? 'vgpu-device' : ''}">
       <div class="gpu-device-name">
-        <span class="badge ${vendorLower === 'nvidia' ? 'badge-green' : 'badge-orange'}">${(dev.vendor || 'Unknown').toUpperCase()}</span>
+        <span class="badge ${vendorBadgeClass}">${vendorText}</span>
         ${dev.name}
+        ${isVGPU ? '<span class="vgpu-badge">Virtual</span>' : ''}
       </div>
       <div class="gpu-device-stats">
         <div class="gpu-stat ${tempClass}">
@@ -1852,7 +1861,7 @@ function renderGPUDevice(dev) {
           <span class="gpu-stat-label">Temp</span>
         </div>
         <div class="gpu-stat">
-          <span class="gpu-stat-value">${dev.power_watts || 0}W</span>
+          <span class="gpu-stat-value">${isVGPU ? 'N/A' : (dev.power_watts || 0) + 'W'}</span>
           <span class="gpu-stat-label">Power</span>
         </div>
         <div class="gpu-stat">
@@ -1860,7 +1869,7 @@ function renderGPUDevice(dev) {
           <span class="gpu-stat-label">VRAM</span>
         </div>
         <div class="gpu-stat">
-          <span class="gpu-stat-value">${dev.fan_speed_percent || 0}%</span>
+          <span class="gpu-stat-value">${isVGPU ? 'N/A' : (dev.fan_speed_percent || 0) + '%'}</span>
           <span class="gpu-stat-label">Fan</span>
         </div>
       </div>
@@ -1895,6 +1904,110 @@ async function toggleProfitSwitching(enabled) {
     loadMiningStatus();
   } catch(e) {
     console.error('Failed to toggle profit switching:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Virtual GPU (vGPU) Functions
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadVGPUStatus() {
+  try {
+    const resp = await fetch('/api/mining/vgpu/status');
+    const data = await resp.json();
+    renderVGPUStatus(data);
+  } catch(e) {
+    console.error('Failed to load vGPU status:', e);
+  }
+}
+
+function renderVGPUStatus(data) {
+  const enabled = data.enabled || false;
+  const devices = data.devices || [];
+  const cloudInfo = data.cloud_info || {};
+  
+  // Update toggle
+  const toggle = $('vgpu-toggle');
+  if (toggle) toggle.checked = enabled;
+  
+  // Update status badge
+  const statusEl = $('vgpu-status');
+  if (statusEl) {
+    statusEl.textContent = enabled ? 'Enabled' : 'Disabled';
+    statusEl.className = 'status-value badge ' + (enabled ? 'badge-green' : 'badge-dim');
+  }
+  
+  // Update device count
+  const countEl = $('vgpu-count');
+  if (countEl) countEl.textContent = devices.length;
+  
+  // Update cloud provider
+  const providerEl = $('vgpu-provider');
+  if (providerEl) {
+    const provider = cloudInfo.provider || 'Local';
+    providerEl.textContent = provider.charAt(0).toUpperCase() + provider.slice(1);
+    providerEl.className = 'status-value badge ' + (cloudInfo.is_cloud ? 'badge-accent' : 'badge-dim');
+  }
+  
+  // Show/hide config panel
+  const configEl = $('vgpu-config');
+  if (configEl) {
+    configEl.style.display = enabled ? 'block' : 'none';
+  }
+}
+
+async function toggleVGPU(enabled) {
+  try {
+    const url = enabled ? '/api/mining/vgpu/enable' : '/api/mining/vgpu/disable';
+    const body = enabled ? { count: 1, memory_mb: 4096 } : {};
+    
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      toast(data.error, 'error');
+      // Revert toggle
+      const toggle = $('vgpu-toggle');
+      if (toggle) toggle.checked = !enabled;
+      return;
+    }
+    
+    toast(data.message || (enabled ? 'vGPU enabled' : 'vGPU disabled'), 'success');
+    loadVGPUStatus();
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to toggle vGPU:', e);
+    toast('Failed to toggle vGPU', 'error');
+  }
+}
+
+async function applyVGPUConfig() {
+  try {
+    const count = parseInt($('vgpu-count-select')?.value || '1');
+    const memory = parseInt($('vgpu-memory-select')?.value || '4096');
+    
+    const resp = await fetch('/api/mining/vgpu/enable', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ count: count, memory_mb: memory })
+    });
+    const data = await resp.json();
+    
+    if (data.error) {
+      toast(data.error, 'error');
+      return;
+    }
+    
+    toast(`Applied vGPU config: ${count} device(s) with ${memory}MB each`, 'success');
+    loadVGPUStatus();
+    loadMiningStatus();
+  } catch(e) {
+    console.error('Failed to apply vGPU config:', e);
+    toast('Failed to apply vGPU config', 'error');
   }
 }
 
@@ -1998,6 +2111,7 @@ function stopMiningRefresh() {
 function onTabChange(tabId) {
   if (tabId === 'mining') {
     loadMiningStatus();
+    loadVGPUStatus();  // Also load vGPU status
     // Check if mining is running and start refresh
     if (_miningStatus.running) {
       startMiningRefresh();
