@@ -17,9 +17,12 @@ threads  = 1
 
 # ── Performance ───────────────────────────────────────────────
 worker_connections = 1000    # eventlet greenlet connections
-timeout     = 120            # seconds before killing a hung worker
+# Increased timeout to handle blockchain RPC connection latency during startup.
+# The health check endpoint returns quickly regardless of agent state, so
+# this timeout mainly affects long-running requests (not health checks).
+timeout     = 300            # seconds before killing a hung worker
 keepalive   = 5              # seconds to keep idle connections open
-graceful_timeout = 30        # seconds to finish requests before forced kill
+graceful_timeout = 60        # seconds to finish requests before forced kill
 
 # ── Restart policy ────────────────────────────────────────────
 max_requests            = 500   # restart worker after N requests (memory leak guard)

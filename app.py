@@ -40,6 +40,12 @@ _agent_lock = threading.Lock()
 _agent_start_thread: threading.Thread | None = None
 _MAX_AGENT_INIT_ATTEMPTS = 3
 
+# Response returned when agent is still initializing (503 Service Unavailable with Retry-After)
+_INITIALIZING_RESPONSE = {
+    "status": "initializing",
+    "message": "Nexus AI agent is starting up. Please retry in a few seconds.",
+}
+
 
 def _start_agent_once():
     """Initialize and start the agent with retry logic."""
@@ -76,6 +82,44 @@ def _start_agent_once():
         _agent_started = True
 
 
+def _get_agent_if_ready():
+    """
+    Get the agent instance if it's ready, otherwise return None.
+    
+    This function is NON-BLOCKING and will not wait for agent initialization.
+    Use this for API endpoints that should return quickly even during startup.
+    """
+    if not _agent_started:
+        return None
+    try:
+        return get_agent()
+    except Exception:
+        return None
+
+
+def _require_agent_ready():
+    """
+    Helper decorator/check that returns a 503 response if agent is not ready.
+    
+    Returns (agent, None) if ready, or (None, response) if not ready.
+    """
+    if not _agent_started:
+        response = jsonify(_INITIALIZING_RESPONSE)
+        response.status_code = 503
+        response.headers["Retry-After"] = "5"  # Suggest retry in 5 seconds
+        return None, response
+    
+    try:
+        agent = get_agent()
+        return agent, None
+    except Exception as exc:
+        logger.warning("Failed to get agent: %s", exc)
+        response = jsonify(_INITIALIZING_RESPONSE)
+        response.status_code = 503
+        response.headers["Retry-After"] = "5"
+        return None, response
+
+
 # Start agent in background after first request is handled
 @app.before_request
 def ensure_agent():
@@ -99,15 +143,34 @@ def dashboard():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "service": "nexus-ai"})
+    """
+    Health check endpoint for Render and load balancers.
+    
+    IMPORTANT: This endpoint must NEVER block or depend on agent initialization.
+    It should always return quickly (< 1 second) to avoid 504 gateway timeouts.
+    """
+    # Check if agent is ready (non-blocking check)
+    agent_ready = _agent_started
+    
+    return jsonify({
+        "status": "ok",
+        "service": "nexus-ai",
+        "agent_ready": agent_ready,
+    })
 
 
 # ── REST API ──────────────────────────────────────────────────
 
 @app.route("/api/status")
 def api_status():
+    """
+    Get agent status. Returns 503 with Retry-After header if agent is still initializing.
+    """
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         return jsonify(agent.status())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -115,9 +178,12 @@ def api_status():
 
 @app.route("/api/opportunities")
 def api_opportunities():
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         limit = int(request.args.get("limit", 20))
-        agent = get_agent()
         return jsonify(agent.get_opportunities(limit=limit))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -125,9 +191,12 @@ def api_opportunities():
 
 @app.route("/api/trades")
 def api_trades():
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         limit = int(request.args.get("limit", 50))
-        agent = get_agent()
         return jsonify(agent.get_recent_trades(limit=limit))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -161,8 +230,11 @@ def api_config():
 @app.route("/api/payout")
 def api_payout():
     """Current payout status and accumulated pending balance."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         return jsonify(agent.payout.status())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -171,9 +243,12 @@ def api_payout():
 @app.route("/api/payout/history")
 def api_payout_history():
     """Recent payout transactions."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         limit = int(request.args.get("limit", 20))
-        agent = get_agent()
         return jsonify(agent.get_payout_history(limit=limit))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -182,9 +257,12 @@ def api_payout_history():
 @app.route("/api/payout/sweep", methods=["POST"])
 def api_payout_sweep():
     """Manually trigger an immediate payout sweep."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         chain = request.json.get("chain", "ethereum") if request.is_json else "ethereum"
-        agent = get_agent()
         result = agent.force_payout(chain=chain)
         return jsonify(result)
     except Exception as exc:
@@ -194,8 +272,11 @@ def api_payout_sweep():
 @app.route("/api/learning")
 def api_learning():
     """Return full AI brain / learning status."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         return jsonify(agent.brain.status())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -204,8 +285,11 @@ def api_learning():
 @app.route("/api/learning/params")
 def api_learning_params():
     """Return current adaptive parameters."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         return jsonify(agent.brain.optimizer.all_params())
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -214,8 +298,11 @@ def api_learning_params():
 @app.route("/api/learning/regime")
 def api_learning_regime():
     """Return current market regime and strategy weights."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         return jsonify({
             "regime":           agent.brain.regime(),
             "strategy_weights": agent.brain.strategy_weights(),
@@ -244,37 +331,40 @@ def api_chat():
         if not user_message:
             return jsonify({"error": "message is required"}), 400
 
-        # Gather live bot status for context
+        # Gather live bot status for context (non-blocking)
         bot_status = {}
-        try:
-            agent = get_agent()
-            bot_status = agent.status()
-        except Exception:
-            pass
+        agent = _get_agent_if_ready()
+        if agent:
+            try:
+                bot_status = agent.status()
+            except Exception:
+                pass
 
         chat = get_chat_engine()
         result = chat.chat(user_message, bot_status=bot_status)
 
-        # Execute any requested bot action
+        # Execute any requested bot action (only if agent is ready)
         action = result.get("action")
         cmd_params = result.get("params", {})
         
-        if action == "start":
-            try:
-                get_agent().start()
-            except Exception:
-                pass
-        elif action == "stop":
-            try:
-                get_agent().stop()
-            except Exception:
-                pass
-        elif action == "payout":
-            try:
-                get_agent().force_payout()
-            except Exception:
-                pass
-        elif action == "set_dry_run":
+        if agent:  # Only execute actions if agent is ready
+            if action == "start":
+                try:
+                    agent.start()
+                except Exception:
+                    pass
+            elif action == "stop":
+                try:
+                    agent.stop()
+                except Exception:
+                    pass
+            elif action == "payout":
+                try:
+                    agent.force_payout()
+                except Exception:
+                    pass
+        
+        if action == "set_dry_run":
             try:
                 dry = data.get("dry_run", True)
                 Config.DRY_RUN = dry
@@ -351,9 +441,12 @@ def api_voice_status():
 @app.route("/api/mining/status")
 def api_mining_status():
     """Get PoW mining status and statistics."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy, get_mining_environment_info
-        agent = get_agent()
         
         # Find the PoW mining strategy in the monitor
         pow_strategy = None
@@ -381,9 +474,12 @@ def api_mining_status():
 @app.route("/api/mining/start", methods=["POST"])
 def api_mining_start():
     """Start PoW mining."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         # Find the PoW mining strategy
         pow_strategy = None
@@ -406,9 +502,12 @@ def api_mining_start():
 @app.route("/api/mining/stop", methods=["POST"])
 def api_mining_stop():
     """Stop PoW mining."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         # Find the PoW mining strategy
         pow_strategy = None
@@ -429,9 +528,12 @@ def api_mining_stop():
 @app.route("/api/mining/pause", methods=["POST"])
 def api_mining_pause():
     """Temporarily pause mining (keeps pool connection)."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -451,9 +553,12 @@ def api_mining_pause():
 @app.route("/api/mining/resume", methods=["POST"])
 def api_mining_resume():
     """Resume paused mining."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -477,10 +582,13 @@ def api_mining_configure():
     
     Request JSON: { "intensity": 50, "max_cpu_percent": 80 }
     """
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
         data = request.get_json(force=True) or {}
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -525,9 +633,12 @@ def api_mining_environment():
 @app.route("/api/mining/gpu/devices")
 def api_mining_gpu_devices():
     """Get detailed GPU device information."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -631,9 +742,12 @@ def api_mining_vgpu_disable():
 @app.route("/api/mining/profitability")
 def api_mining_profitability():
     """Get coin profitability data for profit switching."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -663,6 +777,10 @@ def api_mining_profitability():
 @app.route("/api/mining/switch_coin", methods=["POST"])
 def api_mining_switch_coin():
     """Switch mining to a different coin."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
         data = request.get_json(force=True) or {}
@@ -670,8 +788,6 @@ def api_mining_switch_coin():
         
         if not coin:
             return jsonify({"error": "Coin symbol required"}), 400
-        
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -697,13 +813,15 @@ def api_mining_switch_coin():
 @app.route("/api/mining/profit_switching", methods=["POST"])
 def api_mining_profit_switching():
     """Enable or disable automatic profit switching."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         from nexus.strategies.pow_mining import PoWMiningStrategy
         data = request.get_json(force=True) or {}
         enabled = data.get("enabled", True)
         threshold = data.get("threshold_percent", 10.0)
-        
-        agent = get_agent()
         
         pow_strategy = None
         for strategy in agent.monitor._strategies:
@@ -1359,10 +1477,13 @@ def api_control():
 
     Request JSON: { "action": "start" | "stop" | "set_dry_run", "value": ... }
     """
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
         data = request.get_json(force=True) or {}
         action = data.get("action", "")
-        agent = get_agent()
         if action == "start":
             agent.start()
             return jsonify({"ok": True, "action": "start"})
@@ -2192,8 +2313,11 @@ def api_efficiency():
       - Strategy performance by regime
       - Scheduler queue status
     """
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         status = agent.status()
         brain_status = status.get("brain", {})
         efficiency = status.get("efficiency", {})
@@ -2242,8 +2366,11 @@ def api_efficiency():
 @app.route("/api/efficiency/summary")
 def api_efficiency_summary():
     """Return a concise efficiency summary for quick monitoring."""
+    agent, error_response = _require_agent_ready()
+    if error_response:
+        return error_response
+    
     try:
-        agent = get_agent()
         status = agent.status()
         rewards = status.get("rewards", {})
         efficiency = status.get("efficiency", {})
@@ -2346,8 +2473,13 @@ def ws_request_efficiency():
 
 
 def _push_status():
+    agent = _get_agent_if_ready()
+    if not agent:
+        # Agent not ready yet - send initializing status
+        emit("status_update", {"status": "initializing", "message": "Agent is starting up..."})
+        return
+    
     try:
-        agent = get_agent()
         emit("status_update", agent.status())
         emit("opportunities_update", agent.get_opportunities(limit=10))
         emit("trades_update", agent.get_recent_trades(limit=10))
@@ -2358,8 +2490,12 @@ def _push_status():
 
 def _push_efficiency():
     """Push efficiency metrics via WebSocket."""
+    agent = _get_agent_if_ready()
+    if not agent:
+        emit("efficiency_update", {"status": "initializing"})
+        return
+    
     try:
-        agent = get_agent()
         status = agent.status()
         efficiency = status.get("efficiency", {})
         brain = status.get("brain", {})
@@ -2383,8 +2519,14 @@ def _background_pusher():
     while True:
         time.sleep(Config.SCAN_INTERVAL_SECONDS)
         push_count += 1
+        
+        # Skip updates if agent is not ready yet
+        agent = _get_agent_if_ready()
+        if not agent:
+            socketio.emit("status_update", {"status": "initializing", "message": "Agent is starting up..."})
+            continue
+        
         try:
-            agent = get_agent()
             status = agent.status()
             socketio.emit("status_update", status)
             socketio.emit("opportunities_update", agent.get_opportunities(limit=10))
