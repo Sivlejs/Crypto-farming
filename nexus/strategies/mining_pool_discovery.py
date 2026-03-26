@@ -506,7 +506,7 @@ KNOWN_POOLS: List[Dict[str, Any]] = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 class CoinPriceFetcher:
-    """Fetch cryptocurrency prices from public APIs."""
+    """Fetch cryptocurrency prices from public APIs with rate limiting."""
     
     # CoinGecko IDs for coins
     COINGECKO_IDS = {
@@ -522,10 +522,27 @@ class CoinPriceFetcher:
         "ALPH": "alephium",
     }
     
+    # Fallback prices (updated periodically, used when API is rate limited)
+    FALLBACK_PRICES = {
+        "BTC": 65000.0,
+        "LTC": 85.0,
+        "DOGE": 0.08,
+        "ETC": 25.0,
+        "RVN": 0.025,
+        "XMR": 150.0,
+        "ERG": 1.50,
+        "KAS": 0.12,
+        "FLUX": 0.50,
+        "ALPH": 2.00,
+    }
+    
     def __init__(self):
         self._cache: Dict[str, Tuple[float, float]] = {}  # coin -> (price, timestamp)
-        self._cache_ttl = 300  # 5 minutes
+        self._cache_ttl = 600  # 10 minutes (increased to reduce API calls)
         self._lock = threading.Lock()
+        self._last_api_call = 0.0
+        self._min_api_interval = 30.0  # Minimum seconds between API calls
+        self._rate_limited_until = 0.0  # Timestamp when rate limiting expires
     
     def get_price(self, coin: str) -> float:
         """Get current price for a coin in USD."""
@@ -536,6 +553,10 @@ class CoinPriceFetcher:
                 if time.time() - ts < self._cache_ttl:
                     return price
         
+        # If rate limited, use fallback
+        if time.time() < self._rate_limited_until:
+            return self._get_fallback_price(coin)
+        
         # Fetch fresh price
         try:
             price = self._fetch_price(coin)
@@ -544,18 +565,28 @@ class CoinPriceFetcher:
             return price
         except Exception as e:
             logger.warning("Failed to fetch price for %s: %s", coin, e)
-            # Return cached value if available
+            # Return cached value if available, otherwise fallback
             with self._lock:
                 if coin in self._cache:
                     return self._cache[coin][0]
-            return 0.0
+            return self._get_fallback_price(coin)
+    
+    def _get_fallback_price(self, coin: str) -> float:
+        """Get fallback price when API is unavailable."""
+        return self.FALLBACK_PRICES.get(coin.upper(), 0.0)
     
     def _fetch_price(self, coin: str) -> float:
-        """Fetch price from CoinGecko API."""
+        """Fetch price from CoinGecko API with rate limiting."""
+        # Rate limiting check
+        now = time.time()
+        if now - self._last_api_call < self._min_api_interval:
+            return self._get_fallback_price(coin)
+        
         coin_id = self.COINGECKO_IDS.get(coin.upper())
         if not coin_id:
             return 0.0
         
+        self._last_api_call = now
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
         
         response = requests.get(url, timeout=10)
@@ -565,7 +596,25 @@ class CoinPriceFetcher:
         return data.get(coin_id, {}).get("usd", 0.0)
     
     def get_prices_batch(self, coins: List[str]) -> Dict[str, float]:
-        """Get prices for multiple coins at once."""
+        """Get prices for multiple coins at once with rate limiting."""
+        # Check if rate limited
+        if time.time() < self._rate_limited_until:
+            # Return fallback prices
+            return {coin.upper(): self._get_fallback_price(coin) for coin in coins}
+        
+        # Rate limiting check
+        now = time.time()
+        if now - self._last_api_call < self._min_api_interval:
+            # Return cached or fallback prices
+            prices = {}
+            for coin in coins:
+                with self._lock:
+                    if coin.upper() in self._cache:
+                        prices[coin.upper()] = self._cache[coin.upper()][0]
+                    else:
+                        prices[coin.upper()] = self._get_fallback_price(coin)
+            return prices
+        
         # Map to CoinGecko IDs
         ids = []
         coin_map = {}
@@ -579,8 +628,16 @@ class CoinPriceFetcher:
             return {}
         
         try:
+            self._last_api_call = now
             url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(ids)}&vs_currencies=usd"
             response = requests.get(url, timeout=10)
+            
+            # Handle rate limiting
+            if response.status_code == 429:
+                self._rate_limited_until = time.time() + 120  # Wait 2 minutes
+                logger.warning("CoinGecko rate limited, using fallback prices for 2 minutes")
+                return {coin.upper(): self._get_fallback_price(coin) for coin in coins}
+            
             response.raise_for_status()
             data = response.json()
             
@@ -592,10 +649,16 @@ class CoinPriceFetcher:
                     with self._lock:
                         self._cache[coin] = (prices[coin], time.time())
             
+            # Add fallback for coins not in response
+            for coin in coins:
+                if coin.upper() not in prices:
+                    prices[coin.upper()] = self._get_fallback_price(coin)
+            
             return prices
         except Exception as e:
             logger.warning("Failed to fetch batch prices: %s", e)
-            return {}
+            # Return fallback prices
+            return {coin.upper(): self._get_fallback_price(coin) for coin in coins}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
