@@ -287,6 +287,40 @@ class NexusChat:
                 return f"Setting payout address to {addr[:10]}...{addr[-6:]}. Profits will be sent here."
             return "Tell me the wallet address, like 'set payout address to 0x...'."
 
+        # ── Mining Commands ────────────────────────────────────────
+        elif intent == "mining_start":
+            return "Starting PoW mining... Go to the Mining tab in the dashboard to see real-time hashrate and status."
+
+        elif intent == "mining_stop":
+            return "Stopping PoW mining..."
+
+        elif intent == "mining_status":
+            # Try to get mining status from the agent
+            try:
+                mining = status.get("mining", {})
+                if mining:
+                    hashrate = mining.get("miner", {}).get("hashrate_formatted", "0 H/s")
+                    is_running = mining.get("running", False)
+                    shares = mining.get("stratum", {}).get("shares_accepted", 0)
+                    algorithm = mining.get("algorithm", "N/A")
+                    return (
+                        f"Mining Status: {'Running' if is_running else 'Stopped'}\n"
+                        f"Algorithm: {algorithm.upper()}\n"
+                        f"Hashrate: {hashrate}\n"
+                        f"Accepted Shares: {shares}\n"
+                        f"View the Mining tab for real-time visualization."
+                    )
+            except Exception:
+                pass
+            return "Check the Mining tab in the dashboard to see real-time hashrate, activity visualization, and mining status."
+
+        elif intent == "mining_pools":
+            return (
+                "Mining pools are available in the dashboard Mining tab. "
+                "You can view discovered pools, select the best pool, or let the AI auto-select based on profitability. "
+                "Supported algorithms include SHA256, Scrypt, RandomX, Ethash, KawPow, and more."
+            )
+
         elif intent == "help":
             return (
                 "I understand voice and text commands. Try:\n"
@@ -295,7 +329,9 @@ class NexusChat:
                 "• 'Sweep my profits' or 'Show payout'\n"
                 "• 'Set min profit to $5' or 'Set gas limit to 50'\n"
                 "• 'Configure Coinbase' or 'Show settings'\n"
-                "• 'What's the market doing?' or 'How's your brain?'"
+                "• 'What's the market doing?' or 'How's your brain?'\n"
+                "• 'Start mining' or 'Mining status'\n"
+                "• 'Show mining pools' or 'What's my hashrate?'"
             )
 
         else:
@@ -320,6 +356,8 @@ class NexusChat:
             "set_slippage":    "set_slippage",
             "set_threshold":   "set_threshold",
             "set_payout_addr": "set_payout_addr",
+            "mining_start":    "mining_start",
+            "mining_stop":     "mining_stop",
         }.get(cmd.intent)
 
     @staticmethod

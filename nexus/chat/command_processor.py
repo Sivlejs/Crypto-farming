@@ -25,6 +25,10 @@ Supported intents
   set_coinbase    → configure Coinbase credentials
   set_payout_addr → set payout address
   settings        → show current settings
+  mining_start    → start PoW mining
+  mining_stop     → stop PoW mining
+  mining_status   → show mining hashrate and status
+  mining_pools    → show available mining pools
   help            → list commands
   unknown         → fallback
 """
@@ -53,6 +57,12 @@ _PATTERNS: list[tuple[str, list[str]]] = [
     ("set_payout_addr", [r"\bpayout.*address\b", r"\bwallet.*address\b", r"\bdestination.*address\b"]),
     ("set_dry_run",  [r"\bsimulat", r"\bdry.?run\b", r"\btest mode\b", r"\blive mode\b", r"\breal trade"]),
     ("settings",     [r"\bsettings?\b", r"\bshow.*config", r"\bshow.*option", r"\bcurrent.*settings?"]),
+    
+    # Mining commands (specific patterns first)
+    ("mining_start", [r"\bstart.*min(?:e|ing)\b", r"\bmin(?:e|ing).*start\b", r"\bbegin.*min(?:e|ing)\b", r"\bturn on.*min(?:e|ing)\b"]),
+    ("mining_stop",  [r"\bstop.*min(?:e|ing)\b", r"\bmin(?:e|ing).*stop\b", r"\bhalt.*min(?:e|ing)\b", r"\bturn off.*min(?:e|ing)\b"]),
+    ("mining_status",[r"\bmin(?:e|ing).*status\b", r"\bhashrate\b", r"\bhow.*min(?:e|ing)\b", r"\bmin(?:e|ing).*going\b", r"\bmin(?:e|ing).*working\b"]),
+    ("mining_pools", [r"\bmin(?:e|ing).*pool\b", r"\bpool.*discover", r"\bavailable.*pool\b", r"\bshow.*pool\b"]),
     
     # Bot control commands
     ("start",        [r"\bstart\b", r"\brun\b", r"\blaunch\b", r"\bbegin\b", r"\bturn on\b"]),

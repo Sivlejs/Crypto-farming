@@ -14,7 +14,11 @@ let _profitHistory= [];   // [{label, value}]
 let _priceHistory = {};   // {symbol: [prices]}
 
 // ── Charts ───────────────────────────────────────────────────
-let profitChart, stratPieChart, priceChart;
+let profitChart, stratPieChart, priceChart, hashrateChart;
+
+// ── Mining State ────────────────────────────────────────────
+let _hashrateHistory = [];  // [{timestamp, hashrate}]
+const MAX_HASHRATE_HISTORY = 60;  // Keep last 60 data points
 
 // ── Socket.IO ────────────────────────────────────────────────
 const socket = io({ transports: ['websocket', 'polling'] });
@@ -25,6 +29,7 @@ socket.on('status_update',        data  => { _status = data; renderAll(); });
 socket.on('opportunities_update', data  => { _opps   = data; renderOpportunities(); });
 socket.on('trades_update',        data  => { _trades = data; renderTrades(); renderTradesMini(); });
 socket.on('payout_update',        data  => { _payoutStatus = data; renderPayout(); });
+socket.on('mining_update',        data  => { _miningStatus = data; onMiningUpdate(data); });
 
 // ── Helpers ───────────────────────────────────────────────────
 const $  = id  => document.getElementById(id);
@@ -1649,6 +1654,8 @@ async function loadMiningStatus() {
     const data = await resp.json();
     _miningStatus = data;
     renderMiningStatus(data);
+    // Also update hashrate chart and activity indicator
+    updateHashrateHistory(data);
   } catch(e) {
     console.error('Failed to load mining status:', e);
   }
@@ -2107,14 +2114,178 @@ function stopMiningRefresh() {
   }
 }
 
+// Handle incoming WebSocket mining updates
+function onMiningUpdate(data) {
+  // Only render if we're on the mining tab
+  const miningTab = $('tab-mining');
+  if (miningTab && miningTab.classList.contains('active')) {
+    renderMiningStatus(data);
+    updateHashrateHistory(data);
+  }
+}
+
+// Update hashrate history for the chart
+function updateHashrateHistory(data) {
+  const miner = data.miner || {};
+  const hashrate = miner.hashrate || 0;
+  const timestamp = new Date().toLocaleTimeString();
+  
+  _hashrateHistory.push({ timestamp, hashrate });
+  
+  // Keep only the last MAX_HASHRATE_HISTORY points
+  if (_hashrateHistory.length > MAX_HASHRATE_HISTORY) {
+    _hashrateHistory.shift();
+  }
+  
+  updateHashrateChart();
+  updateMiningActivityIndicator(data);
+}
+
+// Initialize hashrate chart
+function initHashrateChart() {
+  const ctx = $('hashrate-chart');
+  if (!ctx) return;
+  
+  if (hashrateChart) {
+    hashrateChart.destroy();
+  }
+  
+  hashrateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Hashrate (H/s)',
+        data: [],
+        borderColor: '#00d8ff',
+        backgroundColor: 'rgba(0, 216, 255, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(255,255,255,0.1)' },
+          ticks: { 
+            color: '#888',
+            callback: function(value) {
+              return formatHashrateValue(value);
+            }
+          }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { 
+            color: '#888',
+            maxTicksLimit: 10,
+            maxRotation: 0
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return formatHashrate(context.raw);
+            }
+          }
+        }
+      },
+      animation: {
+        duration: 300
+      }
+    }
+  });
+}
+
+// Update hashrate chart with latest data
+function updateHashrateChart() {
+  if (!hashrateChart) {
+    initHashrateChart();
+  }
+  
+  if (hashrateChart && _hashrateHistory.length > 0) {
+    hashrateChart.data.labels = _hashrateHistory.map(h => h.timestamp);
+    hashrateChart.data.datasets[0].data = _hashrateHistory.map(h => h.hashrate);
+    hashrateChart.update('none'); // No animation for smooth updates
+  }
+}
+
+// Format hashrate value for Y-axis ticks
+function formatHashrateValue(value) {
+  if (value >= 1e12) return (value / 1e12).toFixed(1) + ' TH/s';
+  if (value >= 1e9) return (value / 1e9).toFixed(1) + ' GH/s';
+  if (value >= 1e6) return (value / 1e6).toFixed(1) + ' MH/s';
+  if (value >= 1e3) return (value / 1e3).toFixed(1) + ' KH/s';
+  return value.toFixed(0) + ' H/s';
+}
+
+// Update mining activity indicator (animated blocks)
+function updateMiningActivityIndicator(data) {
+  const indicator = $('mining-activity-indicator');
+  if (!indicator) return;
+  
+  const running = data.running || false;
+  const stratum = data.stratum || {};
+  const miner = data.miner || {};
+  const hashrate = miner.hashrate || 0;
+  const isSimulated = stratum.simulated || false;
+  
+  if (!running) {
+    indicator.innerHTML = '<div class="mining-inactive">⏸️ Mining Inactive</div>';
+    indicator.className = 'mining-activity inactive';
+    return;
+  }
+  
+  // Show animated mining visualization
+  // Each block represents ~100 H/s of hashrate for visual scaling
+  const HASHRATE_PER_BLOCK = 100;
+  const blocksCount = Math.min(20, Math.max(1, Math.floor(hashrate / HASHRATE_PER_BLOCK) + 1));
+  let blocks = '';
+  for (let i = 0; i < blocksCount; i++) {
+    const delay = (i * 0.1).toFixed(1);
+    blocks += `<div class="hash-block" style="animation-delay: ${delay}s">⬢</div>`;
+  }
+  
+  const modeLabel = isSimulated ? '<span class="sim-badge">SIMULATION</span>' : '<span class="live-badge">LIVE</span>';
+  const totalHashes = (miner.total_hashes || 0).toLocaleString();
+  
+  indicator.innerHTML = `
+    <div class="mining-active">
+      <div class="hash-animation">${blocks}</div>
+      <div class="mining-info">
+        ${modeLabel}
+        <span class="hash-count">Hashes: ${totalHashes}</span>
+      </div>
+    </div>
+  `;
+  indicator.className = 'mining-activity active';
+}
+
 // Auto-load mining status when tab is shown
 function onTabChange(tabId) {
   if (tabId === 'mining') {
     loadMiningStatus();
     loadVGPUStatus();  // Also load vGPU status
+    // Initialize hashrate chart if not already done
+    if (!hashrateChart) {
+      initHashrateChart();
+    }
     // Check if mining is running and start refresh
     if (_miningStatus.running) {
       startMiningRefresh();
+    }
+    // Update hashrate chart and activity indicator with current data
+    if (_miningStatus && Object.keys(_miningStatus).length > 0) {
+      updateHashrateHistory(_miningStatus);
     }
   } else {
     // Stop refresh when leaving mining tab
