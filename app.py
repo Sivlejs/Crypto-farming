@@ -1120,6 +1120,134 @@ def api_mining_ai_configure():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route("/api/mining/boost/status")
+def api_mining_boost_status():
+    """Get hashrate booster status and statistics."""
+    try:
+        from nexus.strategies.hashrate_booster import get_hashrate_booster, get_all_boost_stats
+        
+        stats = get_all_boost_stats()
+        
+        return jsonify({
+            "ok": True,
+            **stats,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/boost/optimize", methods=["POST"])
+def api_mining_boost_optimize():
+    """
+    Optimize hashrate for current mining configuration.
+    
+    Request JSON: {
+        "algorithm": "sha256",  # Mining algorithm
+        "current_hashrate": 1000000,  # Current H/s
+        "temperature": 65,  # Current temp in C
+        "power_watts": 150,  # Current power draw
+        "config": {...}  # Optional current config
+    }
+    """
+    try:
+        from nexus.strategies.hashrate_booster import boost_hashrate, OptimizationLevel
+        
+        data = request.get_json(force=True) or {}
+        
+        algorithm = data.get("algorithm", "sha256")
+        current_hashrate = float(data.get("current_hashrate", 0))
+        temperature = float(data.get("temperature", 50))
+        power_watts = float(data.get("power_watts", 100))
+        config = data.get("config")
+        
+        result = boost_hashrate(
+            algorithm=algorithm,
+            current_hashrate=current_hashrate,
+            temperature=temperature,
+            power_watts=power_watts,
+            config=config
+        )
+        
+        return jsonify({
+            "ok": result.success,
+            "original_hashrate": result.original_hashrate,
+            "boosted_hashrate": result.boosted_hashrate,
+            "improvement_percent": result.improvement_percent,
+            "optimizations_applied": result.optimizations_applied,
+            "new_config": result.new_config,
+            "warnings": result.warnings,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/boost/benchmark", methods=["POST"])
+def api_mining_boost_benchmark():
+    """
+    Benchmark hashrate for an algorithm.
+    
+    Request JSON: {
+        "algorithm": "sha256",
+        "duration_seconds": 5.0
+    }
+    """
+    try:
+        from nexus.strategies.hashrate_booster import benchmark_algorithm
+        
+        data = request.get_json(force=True) or {}
+        algorithm = data.get("algorithm", "sha256")
+        duration = float(data.get("duration_seconds", 5.0))
+        
+        # Limit duration for safety
+        duration = min(max(1.0, duration), 30.0)
+        
+        hashrate = benchmark_algorithm(algorithm, duration)
+        
+        return jsonify({
+            "ok": True,
+            "algorithm": algorithm,
+            "hashrate": hashrate,
+            "hashrate_formatted": format_hashrate(hashrate),
+            "duration_seconds": duration,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/mining/boost/recommendations")
+def api_mining_boost_recommendations():
+    """Get hashrate boost recommendations for an algorithm."""
+    try:
+        from nexus.strategies.hashrate_booster import get_boost_recommendations
+        
+        algorithm = request.args.get("algorithm", "sha256")
+        
+        recommendations = get_boost_recommendations(algorithm)
+        
+        return jsonify({
+            "ok": True,
+            **recommendations,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+def format_hashrate(hashrate: float) -> str:
+    """Format hashrate with appropriate unit."""
+    if hashrate >= 1e15:
+        return f"{hashrate / 1e15:.2f} PH/s"
+    elif hashrate >= 1e12:
+        return f"{hashrate / 1e12:.2f} TH/s"
+    elif hashrate >= 1e9:
+        return f"{hashrate / 1e9:.2f} GH/s"
+    elif hashrate >= 1e6:
+        return f"{hashrate / 1e6:.2f} MH/s"
+    elif hashrate >= 1e3:
+        return f"{hashrate / 1e3:.2f} KH/s"
+    else:
+        return f"{hashrate:.2f} H/s"
+
+
 @app.route("/api/mining/start-with-pool", methods=["POST"])
 def api_mining_start_with_pool():
     """Start mining with a specific pool from the discovery list."""

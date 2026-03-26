@@ -35,6 +35,16 @@ logger = get_logger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Constants
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Base device ID for virtual GPU devices - IDs >= this value are vGPUs
+VGPU_DEVICE_ID_BASE = 1000
+
+# Maximum number of vGPU devices that can be created
+VGPU_MAX_COUNT = 8
+
+# ══════════════════════════════════════════════════════════════════════════════
 # GPU Device Detection and Management
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -174,7 +184,7 @@ class GPUDetector:
         # Create vGPU devices based on configuration
         for i in range(self._vgpu_count):
             vgpu = GPUDevice(
-                device_id=1000 + i,  # Use high IDs to distinguish from physical GPUs
+                device_id=VGPU_DEVICE_ID_BASE + i,  # Use high IDs to distinguish from physical GPUs
                 name=f"vGPU-{i} (Virtual Mining Accelerator)",
                 vendor=GPUVendor.NVIDIA,  # Virtual devices simulate NVIDIA for compatibility
                 memory_mb=self._vgpu_memory_mb,
