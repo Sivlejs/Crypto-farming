@@ -117,10 +117,10 @@ def sha256d(data: bytes) -> bytes:
 def scrypt_hash(data: bytes, N: int = 1024, r: int = 1, p: int = 1) -> bytes:
     """Scrypt hash (used in Litecoin mining)."""
     try:
-        import hashlib
+        # hashlib.scrypt requires Python 3.6+ with OpenSSL 1.1+
         return hashlib.scrypt(data, salt=data, n=N, r=r, p=p, dklen=32)
-    except (ImportError, AttributeError):
-        # Fallback to SHA256d if scrypt not available
+    except AttributeError:
+        # Fallback to SHA256d if scrypt not available in this Python build
         return sha256d(data)
 
 
@@ -178,8 +178,11 @@ class RealCPUCompute:
         # Callbacks
         self._on_hash_found: Optional[Callable[[bytes, int], None]] = None
         
-        # Target difficulty (lower = easier, for testing)
-        self._target = 2 ** 240  # Very easy target for testing
+        # Target difficulty - set to easy value for standalone testing
+        # In production, this is overridden by set_target() with pool difficulty
+        # Note: 2^240 is ~65000x easier than Bitcoin mainnet for quick testing
+        self._target = 2 ** 240
+        self._using_test_difficulty = True
         
         logger.info(
             "RealCPUCompute initialized: algorithm=%s, threads=%d, intensity=%d%%",
@@ -187,12 +190,20 @@ class RealCPUCompute:
         )
     
     def set_target(self, difficulty: float):
-        """Set mining difficulty target."""
+        """
+        Set mining difficulty target from pool difficulty.
+        
+        This converts the pool's difficulty value to a target threshold.
+        A valid hash must be numerically less than this target.
+        """
         # Convert pool difficulty to target
         if difficulty > 0:
             self._target = int(2 ** 256 / difficulty)
+            self._using_test_difficulty = False
+            logger.debug("Mining target set from pool difficulty: %.4f", difficulty)
         else:
             self._target = 2 ** 256 - 1
+            self._using_test_difficulty = True
     
     def set_hash_callback(self, callback: Callable[[bytes, int], None]):
         """Set callback for when a valid hash is found."""
@@ -347,8 +358,13 @@ class RealCPUCompute:
         uptime = time.time() - self._start_time if self._start_time else 0
         hashrate = self.get_hashrate()
         
-        # Estimate power (rough CPU TDP estimate)
-        power_per_thread = 10.0  # Watts per thread (conservative)
+        # Rough power estimate for monitoring purposes only
+        # Actual CPU power consumption varies significantly:
+        # - Desktop CPUs: 65-125W TDP for all cores
+        # - Server CPUs: 150-350W TDP
+        # - Per-thread estimate: ~5-15W depending on CPU model
+        # This is a conservative estimate (~10W/thread) for profitability tracking
+        power_per_thread = 10.0  # Watts per thread (rough estimate)
         estimated_power = self.threads * power_per_thread * (self.intensity / 100.0)
         
         return ComputeStats(
@@ -663,9 +679,11 @@ class CloudGPURental:
             return False
         
         try:
-            # Default mining image
+            # Default mining image - use specific version for reproducibility
             if not docker_image:
-                docker_image = "trexminer/t-rex:latest"
+                # Using a specific version tag instead of 'latest' for production stability
+                docker_image = "trexminer/t-rex:0.26.8"
+                logger.info("Using default mining image: %s", docker_image)
             
             logger.info("Renting GPU instance %s with image %s", offer_id, docker_image)
             
@@ -1024,8 +1042,17 @@ class RealVGPUComputeManager:
             cloud_stats = self._cloud_gpu.get_stats()
             hashrate = cloud_stats.get("hashrate", 0)
         
+        # Map active engine to compute mode
+        engine_to_mode = {
+            "cpu_real": VGPUComputeMode.CPU_REAL,
+            "xmrig": VGPUComputeMode.EXTERNAL,
+            "cloud_gpu": VGPUComputeMode.CLOUD,
+            "none": VGPUComputeMode.CPU_REAL,
+        }
+        compute_mode = engine_to_mode.get(self._active_engine, VGPUComputeMode.CPU_REAL)
+        
         return ComputeStats(
-            mode=VGPUComputeMode(self._active_engine) if self._active_engine != "none" else VGPUComputeMode.CPU_REAL,
+            mode=compute_mode,
             algorithm=self.algorithm,
             hashrate=hashrate,
             hashes_computed=hashes,
@@ -1047,6 +1074,26 @@ class RealVGPUComputeManager:
     def active_engine(self) -> str:
         """Get the name of the active compute engine."""
         return self._active_engine
+    
+    @property
+    def has_real_gpu(self) -> bool:
+        """Check if real GPU is available."""
+        return self._has_real_gpu
+    
+    @property
+    def has_xmrig(self) -> bool:
+        """Check if XMRig is available."""
+        return self._has_xmrig
+    
+    @property
+    def has_external_miner(self) -> bool:
+        """Check if external miner is available."""
+        return self._has_external_miner
+    
+    @property
+    def has_cloud_api(self) -> bool:
+        """Check if cloud GPU API is configured."""
+        return self._has_cloud_api
 
 
 # ══════════════════════════════════════════════════════════════════════════════

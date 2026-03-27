@@ -1321,10 +1321,10 @@ def get_gpu_mining_info() -> dict:
         compute_mgr = get_compute_manager()
         real_compute_info = {
             "real_compute_available": True,
-            "has_real_gpu": compute_mgr._has_real_gpu,
-            "has_xmrig": compute_mgr._has_xmrig,
-            "has_external_miner": compute_mgr._has_external_miner,
-            "has_cloud_api": compute_mgr._has_cloud_api,
+            "has_real_gpu": compute_mgr.has_real_gpu,
+            "has_xmrig": compute_mgr.has_xmrig,
+            "has_external_miner": compute_mgr.has_external_miner,
+            "has_cloud_api": compute_mgr.has_cloud_api,
         }
     except ImportError:
         real_compute_info = {"real_compute_available": False}
