@@ -2151,6 +2151,30 @@ class PoWMiningStrategy(BaseStrategy):
             if self._gpu_mining_active and self._external_miner:
                 gpu_stats = self._external_miner.get_stats()
             
+            # Fix connection status for GPU mining and real vGPU compute modes
+            # These modes don't use the stratum client directly, so we need to
+            # reflect the actual connection status based on the active mining mode
+            if self._running:
+                # Check if real vGPU compute is active
+                real_compute_active = (
+                    hasattr(self, '_real_compute') and 
+                    self._real_compute is not None and
+                    hasattr(self._real_compute, 'is_running') and
+                    self._real_compute.is_running
+                )
+                
+                # Check if external GPU miner is active
+                external_miner_active = (
+                    self._gpu_mining_active and 
+                    self._external_miner is not None and
+                    self._external_miner.is_running
+                )
+                
+                # If either GPU mode or real compute is running, we're connected
+                if real_compute_active or external_miner_active:
+                    stratum_stats = stratum_stats.copy() if stratum_stats else {}
+                    stratum_stats['connected'] = True
+            
             # Get GPU device info
             gpu_devices = []
             if GPU_MINING_AVAILABLE and self._gpu_detector:
