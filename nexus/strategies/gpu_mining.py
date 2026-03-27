@@ -1295,6 +1295,7 @@ def get_gpu_mining_info() -> dict:
     - Available external miners
     - Cloud environment detection
     - Recommended settings
+    - Real compute capabilities
     """
     detector = get_gpu_detector()
     miner_mgr = get_miner_manager()
@@ -1313,6 +1314,21 @@ def get_gpu_mining_info() -> dict:
         else:
             recommended_algo = MiningAlgorithm.ETHASH.value
     
+    # Check for real compute capabilities
+    real_compute_info = {}
+    try:
+        from nexus.strategies.real_vgpu_compute import get_compute_manager
+        compute_mgr = get_compute_manager()
+        real_compute_info = {
+            "real_compute_available": True,
+            "has_real_gpu": compute_mgr.has_real_gpu,
+            "has_xmrig": compute_mgr.has_xmrig,
+            "has_external_miner": compute_mgr.has_external_miner,
+            "has_cloud_api": compute_mgr.has_cloud_api,
+        }
+    except ImportError:
+        real_compute_info = {"real_compute_available": False}
+    
     return {
         "has_gpu": detector.has_gpu,
         "gpu_count": len(devices),
@@ -1321,4 +1337,5 @@ def get_gpu_mining_info() -> dict:
         "available_miners": [m.value for m in miner_mgr.available_miners],
         "recommended_algorithm": recommended_algo,
         "total_vram_mb": sum(d.memory_mb for d in devices),
+        "real_compute": real_compute_info,
     }

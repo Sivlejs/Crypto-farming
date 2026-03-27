@@ -151,15 +151,46 @@ class Config:
     MINING_AI_OPTIMIZATION: bool = _bool("MINING_AI_OPTIMIZATION", True)
     
     # ── Virtual GPU (vGPU) Settings ───────────────────────────
-    # Enable virtual GPU simulation for cloud environments without physical GPUs
+    # Enable virtual GPU for cloud environments without physical GPUs
     MINING_VGPU_ENABLED: bool = _bool("MINING_VGPU_ENABLED", True)
     # Number of virtual GPU devices to create (increase for more mining power)
     # Each vGPU provides additional parallel mining capacity
     MINING_VGPU_COUNT: int = _int("MINING_VGPU_COUNT", 4)
     # Simulated memory per vGPU device (MB) - higher = better for memory-hard algorithms
     MINING_VGPU_MEMORY_MB: int = _int("MINING_VGPU_MEMORY_MB", 8192)
-    # vGPU compute multiplier - simulates GPU acceleration factor over CPU
+    # vGPU compute multiplier - factor for compute power calculation
     MINING_VGPU_COMPUTE_MULTIPLIER: float = _float("MINING_VGPU_COMPUTE_MULTIPLIER", 10.0)
+    
+    # ── REAL vGPU Compute Settings (NEW) ───────────────────────
+    # Compute mode for vGPU: auto, cpu_real, external, cloud, simulation
+    # - auto: Auto-detect best option (recommended)
+    # - cpu_real: Use built-in CPU computation (real hashes, always available)
+    # - external: Use external miner (XMRig, T-Rex, etc.) if available
+    # - cloud: Use cloud GPU rental (vast.ai, RunPod) if API key configured
+    # - simulation: Legacy simulation mode (NOT for real mining)
+    MINING_VGPU_COMPUTE_MODE: str = os.getenv("MINING_VGPU_COMPUTE_MODE", "auto")
+    # Enable REAL hash computation (disables simulation entirely)
+    MINING_VGPU_REAL_COMPUTE: bool = _bool("MINING_VGPU_REAL_COMPUTE", True)
+    
+    # ── Cloud GPU Rental Settings ──────────────────────────────
+    # vast.ai API key for cloud GPU rental
+    # Get your API key at: https://vast.ai/console/account/
+    VASTAI_API_KEY: str = os.getenv("VASTAI_API_KEY", "")
+    # RunPod API key for cloud GPU rental
+    # Get your API key at: https://www.runpod.io/console/user/settings
+    RUNPOD_API_KEY: str = os.getenv("RUNPOD_API_KEY", "")
+    # Maximum hourly cost for cloud GPU rental (USD)
+    CLOUD_GPU_MAX_COST_PER_HOUR: float = _float("CLOUD_GPU_MAX_COST_PER_HOUR", 0.50)
+    # Preferred GPU model for cloud rental
+    CLOUD_GPU_PREFERRED_MODEL: str = os.getenv("CLOUD_GPU_PREFERRED_MODEL", "RTX_4090")
+    
+    # ── XMRig Integration Settings ─────────────────────────────
+    # Path to XMRig executable (auto-detected if not set)
+    XMRIG_PATH: str = os.getenv("XMRIG_PATH", "")
+    # XMRig HTTP API port for stats retrieval
+    XMRIG_API_PORT: int = _int("XMRIG_API_PORT", 18080)
+    # XMRig algorithm for CPU mining (rx/0 = RandomX for Monero)
+    XMRIG_ALGORITHM: str = os.getenv("XMRIG_ALGORITHM", "rx/0")
     
     # ── Virtual CPU Scaling Settings ───────────────────────────
     # Enable virtual CPU scaling for increased mining throughput
