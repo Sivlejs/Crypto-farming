@@ -2154,6 +2154,7 @@ class PoWMiningStrategy(BaseStrategy):
             # Fix connection status for GPU mining and real vGPU compute modes
             # These modes don't use the stratum client directly, so we need to
             # reflect the actual connection status based on the active mining mode
+            real_compute_active = False
             if self._running:
                 # Check if real vGPU compute is active
                 real_compute_active = (
@@ -2174,6 +2175,26 @@ class PoWMiningStrategy(BaseStrategy):
                 if real_compute_active or external_miner_active:
                     stratum_stats = stratum_stats.copy() if stratum_stats else {}
                     stratum_stats['connected'] = True
+            
+            # CRITICAL FIX: Get real vGPU compute stats when active
+            # When real compute mode is running, self._miner is None, so miner_stats
+            # would be empty. We need to get the actual hashrate from _real_compute.
+            if real_compute_active and not miner_stats:
+                real_stats = self._real_compute.get_stats()
+                miner_stats = {
+                    "hashrate": real_stats.hashrate,
+                    "hashrate_formatted": f"{real_stats.hashrate:.2f} H/s",
+                    "hashes_computed": real_stats.hashes_computed,
+                    "shares_submitted": real_stats.shares_submitted,
+                    "shares_accepted": real_stats.shares_accepted,
+                    "shares_rejected": real_stats.shares_rejected,
+                    "uptime_seconds": real_stats.uptime_seconds,
+                    "power_watts": real_stats.power_watts,
+                    "efficiency": real_stats.efficiency,
+                    "mode": real_stats.mode.value,
+                    "algorithm": real_stats.algorithm,
+                    "is_real_compute": real_stats.is_real_compute,
+                }
             
             # Get GPU device info
             gpu_devices = []
