@@ -103,6 +103,18 @@ try:
 except ImportError:
     SIMULATION_AVAILABLE = False
 
+# Import real vGPU compute for actual hash computations
+try:
+    from nexus.strategies.real_vgpu_compute import (
+        RealVGPUComputeManager,
+        VGPUComputeMode,
+        initialize_real_compute,
+        get_compute_manager,
+    )
+    REAL_COMPUTE_AVAILABLE = True
+except ImportError:
+    REAL_COMPUTE_AVAILABLE = False
+
 
 logger = get_logger(__name__)
 
@@ -1624,10 +1636,25 @@ class PoWMiningStrategy(BaseStrategy):
         return True
     
     def _start_simulated_mining(self) -> bool:
-        """Start mining in simulation mode when pool connection is unavailable."""
+        """
+        Start mining when pool connection is unavailable.
+        
+        IMPORTANT: This now uses REAL computation instead of simulation!
+        If MINING_VGPU_REAL_COMPUTE is enabled (default), real hashes are computed.
+        """
+        # Check if real compute is enabled and available
+        use_real_compute = getattr(self.config, 'MINING_VGPU_REAL_COMPUTE', True)
+        
+        if use_real_compute and REAL_COMPUTE_AVAILABLE:
+            return self._start_real_vgpu_compute()
+        
+        # Fall back to legacy simulation mode if real compute is disabled
         if not SIMULATION_AVAILABLE:
-            logger.error("Simulation mode not available - SimulatedStratumClient import failed")
+            logger.error("Neither real compute nor simulation mode available")
             return False
+        
+        logger.warning("Using SIMULATION mode - no real hashes computed!")
+        logger.warning("Set MINING_VGPU_REAL_COMPUTE=true for real computation")
         
         try:
             self._stratum = SimulatedStratumClient(
@@ -1665,6 +1692,90 @@ class PoWMiningStrategy(BaseStrategy):
         except Exception as e:
             logger.error("Failed to start simulated mining: %s", e)
             return False
+    
+    def _start_real_vgpu_compute(self) -> bool:
+        """
+        Start REAL vGPU computation.
+        
+        This performs ACTUAL hash computations using:
+        1. CPU threads (built-in, always available)
+        2. XMRig (if installed)
+        3. External GPU miners (if GPU available)
+        4. Cloud GPU rental (if API configured)
+        
+        Unlike simulation, every hash counted here is a REAL cryptographic operation.
+        """
+        if not REAL_COMPUTE_AVAILABLE:
+            logger.error("Real vGPU compute module not available")
+            return False
+        
+        try:
+            logger.info("=" * 60)
+            logger.info("STARTING REAL vGPU COMPUTATION")
+            logger.info("=" * 60)
+            logger.info("This performs ACTUAL hash computations - not simulation!")
+            
+            # Initialize real compute manager
+            compute_mode_str = getattr(self.config, 'MINING_VGPU_COMPUTE_MODE', 'auto')
+            try:
+                compute_mode = VGPUComputeMode(compute_mode_str)
+            except ValueError:
+                compute_mode = VGPUComputeMode.AUTO
+            
+            self._real_compute = initialize_real_compute(
+                pool_url=self.config.MINING_POOL_URL or "",
+                wallet_address=self.config.MINING_PAYOUT_ADDRESS or self.config.WALLET_ADDRESS or "",
+                algorithm=self.config.MINING_ALGORITHM,
+                mode=compute_mode,
+            )
+            
+            # Start computation
+            if not self._real_compute.start():
+                logger.error("Failed to start real compute")
+                return False
+            
+            self._running = True
+            self._gpu_mining_active = True  # Real compute counts as GPU mining
+            self._session_start = time.time()
+            
+            logger.info("REAL vGPU compute started successfully!")
+            logger.info("  Mode: %s", self._real_compute.active_engine)
+            logger.info("  Algorithm: %s", self.config.MINING_ALGORITHM)
+            logger.info("  Computing REAL cryptographic hashes")
+            
+            # Start a monitoring thread
+            self._real_compute_monitor = threading.Thread(
+                target=self._monitor_real_compute,
+                daemon=True,
+                name="real-compute-monitor"
+            )
+            self._real_compute_monitor.start()
+            
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to start real vGPU compute: %s", e)
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    def _monitor_real_compute(self):
+        """Monitor and log real compute stats."""
+        while self._running and hasattr(self, '_real_compute') and self._real_compute:
+            try:
+                stats = self._real_compute.get_stats()
+                if stats.hashrate > 0:
+                    logger.info(
+                        "REAL COMPUTE: %s @ %s | Hashes: %d | Shares: %d",
+                        stats.algorithm,
+                        stats.to_dict().get('hashrate_formatted', '0 H/s'),
+                        stats.hashes_computed,
+                        stats.shares_submitted,
+                    )
+            except Exception as e:
+                logger.debug("Monitor error: %s", e)
+            
+            time.sleep(30)  # Log every 30 seconds
     
     def _start_gpu_mining(self) -> bool:
         """Start GPU-based mining with external miner."""
@@ -1922,6 +2033,11 @@ class PoWMiningStrategy(BaseStrategy):
                 return
             
             self._running = False
+            
+            # Stop real vGPU compute if active
+            if hasattr(self, '_real_compute') and self._real_compute:
+                self._real_compute.stop()
+                self._real_compute = None
             
             # Stop GPU mining if active
             if self._gpu_mining_active and self._external_miner:
