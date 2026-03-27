@@ -2154,6 +2154,8 @@ class PoWMiningStrategy(BaseStrategy):
             # Fix connection status for GPU mining and real vGPU compute modes
             # These modes don't use the stratum client directly, so we need to
             # reflect the actual connection status based on the active mining mode
+            # NOTE: real_compute_active is declared here and used below (line ~2182)
+            # to populate miner_stats from real compute when it's the active mode
             real_compute_active = False
             if self._running:
                 # Check if real vGPU compute is active
